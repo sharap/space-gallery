@@ -10,9 +10,11 @@ import android.provider.MediaStore
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class IndexingScheduler(private val context: Context) {
@@ -40,6 +42,29 @@ class IndexingScheduler(private val context: Context) {
             if (restart) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
             request,
         )
+    }
+
+    /**
+     * Вызывается, когда приложение на экране: запустить индексацию немедленно.
+     *
+     * Если воркер уже работает — ничего не делаем. Если он ждёт в очереди (например, после
+     * убийства процесса WorkManager ждёт backoff, а JobScheduler может откладывать ещё дольше) —
+     * заменяем его expedited-задачей: она стартует сразу, а воркер сам переходит в foreground service.
+     */
+    suspend fun ensureIndexingNow(onlyWhileCharging: Boolean) {
+        this.onlyWhileCharging = onlyWhileCharging
+        val running = workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
+            .any { it.state == WorkInfo.State.RUNNING }
+        if (running) return
+        if (onlyWhileCharging) {
+            // Expedited-задачи не поддерживают условие зарядки — ставим обычную.
+            requestIndexing(onlyWhileCharging = true, restart = true)
+            return
+        }
+        val request = OneTimeWorkRequestBuilder<MediaIndexWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+        workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
     fun observeProgress(): Flow<IndexingProgress> =

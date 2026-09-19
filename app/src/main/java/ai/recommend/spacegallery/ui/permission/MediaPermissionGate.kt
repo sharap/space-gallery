@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +68,7 @@ fun MediaPermissionGate(
     LaunchedEffect(granted) { if (granted) onGranted() }
 
     if (granted) {
+        RequestNotificationPermissionOnce()
         content()
     } else {
         Column(
@@ -79,6 +81,26 @@ fun MediaPermissionGate(
             Button(onClick = { launcher.launch(requiredPermissions) }) {
                 Text(stringResource(R.string.permission_grant))
             }
+        }
+    }
+}
+
+/**
+ * Android 13+: один раз просит разрешение на уведомления — в них показывается прогресс
+ * AI-анализа (foreground service). Отказ ни на что не влияет, кроме видимости прогресса.
+ */
+@Composable
+fun RequestNotificationPermissionOnce() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted && !asked) {
+            asked = true
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }

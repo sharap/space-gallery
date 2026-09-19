@@ -16,6 +16,13 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- Индексация в foreground service (WorkManager setForeground) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
+    <!-- Android 13+: без разрешения FGS работает, но уведомление с прогрессом не видно -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Сеть не запрашивается намеренно: вся обработка локальная. -->
 
     <application
@@ -41,6 +48,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Сервис WorkManager для долгих воркеров; тип должен покрывать все типы из ForegroundInfo. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync|mediaProcessing"
+            tools:node="merge" />
 
     </application>
 

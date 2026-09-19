@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
                                 // Быстрая синхронизация сразу, AI-анализ — в фоне через WorkManager.
                                 container.mediaRepository.syncWithMediaStore()
                                 val settings = container.settings.current()
-                                container.indexingScheduler.requestIndexing(settings.indexOnlyWhileCharging)
+                                container.indexingScheduler.ensureIndexingNow(settings.indexOnlyWhileCharging)
                                 container.indexingScheduler.startWatchingMediaStore()
                             }
                         },

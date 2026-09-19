@@ -57,6 +57,11 @@
     <string name="hidden_empty">Нет скрытых фото</string>
     <string name="hidden_toggle_blur">Показать / размыть</string>
 
+    <string name="notification_channel_indexing">AI-анализ медиатеки</string>
+    <string name="notification_indexing_title">Анализ фото и видео</string>
+    <string name="notification_indexing_progress">%1$d из %2$d</string>
+    <string name="notification_indexing_stop">Остановить</string>
+
     <string name="settings_title">Настройки</string>
     <string name="settings_section_privacy">Приватность</string>
     <string name="settings_hide_sensitive">Скрывать деликатный контент</string>

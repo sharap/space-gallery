@@ -35,9 +35,14 @@ class MediaDeleter(private val resolver: ContentResolver) {
                 uris.forEach { resolver.delete(it, null, null) }
                 DeleteResult.Done
             }
-        } catch (e: RecoverableSecurityException) {
-            // TODO: на Android 10 системный диалог подтверждает только один файл за раз.
-            DeleteResult.NeedsConfirmation(e.userAction.actionIntent.intentSender)
+        } catch (e: SecurityException) {
+            // Android 10: чужой файл — система предлагает подтвердить удаление.
+            // TODO: диалог подтверждает только один файл за раз.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                DeleteResult.NeedsConfirmation(e.userAction.actionIntent.intentSender)
+            } else {
+                DeleteResult.Failed(e)
+            }
         } catch (e: Exception) {
             DeleteResult.Failed(e)
         }

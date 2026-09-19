@@ -31,7 +31,11 @@ class ModelProvider(
         withContext(Dispatchers.IO) {
             runCatching {
                 val file = resolveFile(id) ?: return@withContext null
-                onnx.createSession(file.absolutePath).also { sessions[id] = it }
+                val started = System.nanoTime()
+                onnx.createSession(file.absolutePath).also {
+                    sessions[id] = it
+                    Log.i(TAG, "Сессия ${id.fileName} создана за ${(System.nanoTime() - started) / 1_000_000} мс")
+                }
             }.onFailure {
                 Log.e(TAG, "Не удалось загрузить модель ${id.fileName}", it)
                 failed += id

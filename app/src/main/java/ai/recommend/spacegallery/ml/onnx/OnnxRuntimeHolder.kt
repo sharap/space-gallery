@@ -8,12 +8,14 @@ class OnnxRuntimeHolder {
 
     val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
+    companion object {
+        val intraOpThreads: Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+    }
+
     fun createSession(modelPath: String): OrtSession {
         val options = OrtSession.SessionOptions().apply {
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            setIntraOpNumThreads(
-                (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
-            )
+            setIntraOpNumThreads(intraOpThreads)
             // Можно попробовать ускорители — прирост сильно зависит от устройства и модели:
             //   addXnnpack(mapOf("intra_op_num_threads" to "4"))
             //   addNnapi()  // устарело в Android 15, но всё ещё работает
