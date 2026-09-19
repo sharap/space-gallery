@@ -50,7 +50,7 @@ class FaceIndexer(
                 faces += PerfStats.measure("faces.total") { findFaces(media) }
                 done += media.id
             }
-            dao.saveBatch(done, faces, FACES_VERSION)
+            dao.saveBatch(done, inheritPersons(done, faces), FACES_VERSION)
             processed += done.size
             found += faces.size
             onProgress(processed)
@@ -58,6 +58,27 @@ class FaceIndexer(
             afterId = page.last().id
         }
         return processed to found
+    }
+
+    /**
+     * При повторном поиске (новая версия) старые лица фото заменяются новыми — чтобы люди и их
+     * имена не потерялись, новое лицо получает человека старого лица с тем же местом в кадре.
+     */
+    private suspend fun inheritPersons(mediaIds: List<Long>, faces: List<FaceEntity>): List<FaceEntity> {
+        val old = dao.getFacesForMedia(mediaIds).filter { it.personId != null }.groupBy { it.mediaId }
+        if (old.isEmpty()) return faces
+        return faces.map { face ->
+            val match = old[face.mediaId]?.maxByOrNull { iou(it, face) }
+            if (match != null && iou(match, face) >= INHERIT_IOU) face.copy(personId = match.personId) else face
+        }
+    }
+
+    private fun iou(a: FaceEntity, b: FaceEntity): Float {
+        val w = minOf(a.right, b.right) - maxOf(a.left, b.left)
+        val h = minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)
+        if (w <= 0f || h <= 0f) return 0f
+        val inter = w * h
+        return inter / ((a.right - a.left) * (a.bottom - a.top) + (b.right - b.left) * (b.bottom - b.top) - inter)
     }
 
     private suspend fun findFaces(media: MediaEntity): List<FaceEntity> {
@@ -99,17 +120,22 @@ class FaceIndexer(
     }
 
     companion object {
-        /** Увеличить при смене моделей/параметров — лица будут найдены заново. */
-        const val FACES_VERSION = 1
+        /**
+         * Увеличить при смене моделей/параметров — лица будут найдены заново
+         * (люди и имена сохраняются: новое лицо наследует человека старого по пересечению рамок).
+         * 2 — порог детектора 0.6 и мин. размер лица 2%.
+         */
+        const val FACES_VERSION = 2
 
         private const val BATCH = 16
         /** Превью для поиска лиц крупнее, чем для CLIP: иначе мелкие лица не распознать. */
         private const val SOURCE_SIZE = 640
-        /** Лица меньше ~4% стороны кадра (≈ 26 px на 640) распознаются ненадёжно. */
-        private const val MIN_FACE_FRACTION = 0.04f
+        /** Лица меньше 2% длинной стороны (≈ 13 px на 640) — шум; порог подобран на реальных фото. */
+        private const val MIN_FACE_FRACTION = 0.02f
         /** Групповые фото: хватит самых крупных/уверенных лиц. */
         private const val MAX_FACES_PER_PHOTO = 20
         private const val THUMB_SIZE = 128
         private const val THUMB_MARGIN = 1.4f
+        private const val INHERIT_IOU = 0.5f
     }
 }

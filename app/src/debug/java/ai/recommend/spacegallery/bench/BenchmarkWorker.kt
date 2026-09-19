@@ -31,6 +31,10 @@ import java.io.File
  * Отменить все поставленные прогоны бенчмарка:
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action cancel
  *
+ * Диагностика детекции лиц (только числа в лог):
+ *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action facediag --ei sample 300
+ *   adb shell am broadcast ... --es action facediag --es names "IMG_1.jpg,IMG_2.jpg"
+ *
  * Пересчитать умные альбомы (приложение должно быть на экране — иначе фоновые ядра):
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action smart
  *
@@ -69,6 +73,20 @@ class BenchmarkReceiver : BroadcastReceiver() {
                     pending.finish()
                 }
             }
+            return
+        }
+        if (intent.getStringExtra("action") == "facediag") {
+            // Долгая работа — в WorkManager: удерживать ресивер через goAsync дольше ~10 с нельзя (ANR).
+            val request = OneTimeWorkRequestBuilder<FaceDiagnosticsWorker>()
+                .setInputData(
+                    workDataOf(
+                        "sample" to intent.getIntExtra("sample", 300),
+                        "names" to (intent.getStringExtra("names") ?: ""),
+                    )
+                )
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "people") {
@@ -168,6 +186,19 @@ class BenchmarkWorker(context: Context, params: WorkerParameters) : CoroutineWor
             }
         }
         OrtBenchmark.log("=== done ${inputData.getString("run")}")
+        return Result.success()
+    }
+}
+
+class FaceDiagnosticsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        val names = inputData.getString("names").orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        try {
+            FaceDiagnostics(container).run(inputData.getInt("sample", 300), names)
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== facediag FAILED: $e")
+        }
         return Result.success()
     }
 }

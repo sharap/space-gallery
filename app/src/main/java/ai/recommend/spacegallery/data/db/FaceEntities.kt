@@ -112,6 +112,9 @@ interface FaceDao {
     )
     suspend fun countPending(version: Int): Int
 
+    @Query("SELECT * FROM face WHERE mediaId IN (:mediaIds)")
+    suspend fun getFacesForMedia(mediaIds: List<Long>): List<FaceEntity>
+
     @Query("DELETE FROM face WHERE mediaId IN (:mediaIds)")
     suspend fun deleteForMedia(mediaIds: List<Long>)
 
