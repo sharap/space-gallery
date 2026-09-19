@@ -8,10 +8,15 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import ai.recommend.spacegallery.data.db.MediaAnalysisEntity
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -52,25 +57,53 @@ class MediaIndexWorker(
         var windowStart = SystemClock.elapsedRealtime()
         reportProgress(processed, total)
         try {
-            while (!isStopped && processed < total) {
-                val batch = PerfStats.measure("db.getPending") {
-                    analysisDao.getPending(
-                        MediaAnalyzer.PIPELINE_VERSION,
-                        c.imageEmbedder.isAvailable,
-                        c.sensitiveClassifier.isAvailable,
-                        BATCH_SIZE,
-                    )
+            coroutineScope {
+                // Производитель: читает очередь страницами и готовит кадры (декодирование, dHash,
+                // тензор CLIP) на отдельном потоке, пока потребитель занят инференсом.
+                val prepared = Channel<PreparedMedia>(capacity = PREFETCH)
+                val producer = launch(Dispatchers.IO) {
+                    var afterDate = Long.MAX_VALUE
+                    var afterId = Long.MAX_VALUE
+                    while (true) {
+                        val page = PerfStats.measure("db.getPending") {
+                            analysisDao.getPendingPage(
+                                MediaAnalyzer.PIPELINE_VERSION,
+                                c.imageEmbedder.isAvailable,
+                                c.sensitiveClassifier.isAvailable,
+                                afterDate,
+                                afterId,
+                                PAGE_SIZE,
+                            )
+                        }
+                        if (page.isEmpty()) break
+                        for (media in page) prepared.send(c.mediaAnalyzer.prepare(media))
+                        afterDate = page.last().dateTaken
+                        afterId = page.last().id
+                    }
+                    prepared.close()
                 }
-                if (batch.isEmpty()) break
-                val results = batch.map { c.mediaAnalyzer.analyze(it) }
-                PerfStats.measure("db.upsert") { analysisDao.upsertAll(results) }
-                processed += batch.size
-                reportProgress(processed, total)
-                if (processed - reportedAt >= PERF_REPORT_EVERY) {
-                    logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total)
-                    reportedAt = processed
-                    windowStart = SystemClock.elapsedRealtime()
+
+                // Потребитель: инференс по одному кадру, запись в БД батчами.
+                val results = ArrayList<MediaAnalysisEntity>(BATCH_SIZE)
+                suspend fun flush() {
+                    if (results.isEmpty()) return
+                    PerfStats.measure("db.upsert") { analysisDao.upsertAll(results) }
+                    processed += results.size
+                    results.clear()
+                    reportProgress(processed, total)
+                    if (processed - reportedAt >= PERF_REPORT_EVERY) {
+                        logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total)
+                        reportedAt = processed
+                        windowStart = SystemClock.elapsedRealtime()
+                    }
                 }
+                for (item in prepared) {
+                    if (isStopped) break
+                    results += c.mediaAnalyzer.analyze(item)
+                    if (results.size >= BATCH_SIZE) flush()
+                }
+                flush()
+                producer.cancel()
             }
         } catch (e: CancellationException) {
             throw e // остановка воркера — не ошибка
@@ -125,6 +158,10 @@ class MediaIndexWorker(
     companion object {
         private const val TAG = "MediaIndexWorker"
         private const val BATCH_SIZE = 16
+        private const val PAGE_SIZE = 64
+
+        /** Сколько подготовленных кадров держать впереди инференса (~0.6 МБ битмапа на кадр). */
+        private const val PREFETCH = 4
         private const val FOREGROUND_THRESHOLD = 32
         private const val NOTIFICATION_THROTTLE_MS = 1_000L
         private const val PERF_TAG = "IndexPerf"
