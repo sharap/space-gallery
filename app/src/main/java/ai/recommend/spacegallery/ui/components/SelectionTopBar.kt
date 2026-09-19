@@ -54,6 +54,8 @@ fun SelectionTopBar(
     selection: SelectionState,
     items: List<MediaItem>,
     hiddenMode: Boolean = false,
+    /** Дополнительные пункты меню экрана (например, «Это не {имя}» на странице человека). */
+    extraMenuActions: List<Pair<String, () -> Unit>> = emptyList(),
     actions: MediaActionsViewModel = viewModel(factory = appViewModelFactory { c, _ -> MediaActionsViewModel(c.mediaRepository) }),
 ) {
     BackHandler(enabled = selection.isActive) { selection.clear() }
@@ -98,6 +100,15 @@ fun SelectionTopBar(
                     Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.action_more))
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    extraMenuActions.forEach { (label, onClick) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                menuOpen = false
+                                onClick()
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.action_select_all)) },
                         onClick = {

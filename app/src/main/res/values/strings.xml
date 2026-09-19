@@ -66,6 +66,14 @@
     <string name="person_unnamed">Без имени</string>
     <string name="person_add_name">Добавить имя</string>
     <string name="person_open_photos">%1$s — все фото</string>
+    <string name="people_merge">Объединить</string>
+    <string name="people_merge_title">Это один человек (%1$d)?</string>
+    <string name="people_merge_text">Фото всех выбранных соберутся у одного человека. Группа закрепится и не распадётся при пересчёте.</string>
+    <string name="person_rename_text">Имя подтверждает группу: её лица закрепятся за человеком. Ошибки можно убрать через «Это не …» в выборе фото.</string>
+    <string name="person_not_this">Это не %1$s</string>
+    <string name="person_suggestion_title">Это тоже %1$s?</string>
+    <string name="action_yes">Да</string>
+    <string name="action_no">Нет</string>
     <string name="person_rename">Имя человека</string>
     <string name="person_name_hint">Имя</string>
     <string name="action_save">Сохранить</string>

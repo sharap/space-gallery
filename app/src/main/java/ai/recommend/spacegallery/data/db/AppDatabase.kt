@@ -14,8 +14,10 @@ import androidx.room.RoomDatabase
         SmartAlbumMemberEntity::class,
         FaceEntity::class,
         PersonEntity::class,
+        FaceRejectionEntity::class,
+        PersonPairDismissalEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: media.relativePath (для управления альбомами-папками).
@@ -26,6 +28,8 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 3, to = 4),
         // 4 -> 5: аватар человека из оригинала.
         AutoMigration(from = 4, to = 5),
+        // 5 -> 6: ручные правки людей (подтверждённые лица, «это не он», отклонённые подсказки).
+        AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

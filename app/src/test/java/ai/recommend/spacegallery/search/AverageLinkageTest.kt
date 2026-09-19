@@ -77,4 +77,42 @@ class AverageLinkageTest {
         val expected = File(dir, "sklearn_labels.txt").readLines().map { it.trim().toInt() }.toIntArray()
         assertEquals(partition(expected), partition(averageLinkage(v, n, 128, minSimilarity = 0.35f)))
     }
+
+    /** Точки на окружности (dim = 2) под углами [degrees]. */
+    private fun circle(vararg degrees: Double): FloatArray = FloatArray(degrees.size * 2) { i ->
+        val rad = Math.toRadians(degrees[i / 2])
+        (if (i % 2 == 0) kotlin.math.cos(rad) else kotlin.math.sin(rad)).toFloat()
+    }
+
+    @Test
+    fun anchorsStayTogetherEvenWhenDissimilar() {
+        // 0 и 1 далеко (90°), но подтверждены как один человек.
+        val v = circle(0.0, 90.0, 180.0)
+        val labels = averageLinkage(v, 3, 2, minSimilarity = 0.9f, anchors = intArrayOf(7, 7, -1))
+        assertEquals(labels[0], labels[1])
+        assert(labels[2] != labels[0])
+    }
+
+    @Test
+    fun cannotLinkPreventsMergeAndSpreads() {
+        // 0,1,2 очень близко; 2 — «это не он» для подтверждённых 0,1.
+        val v = circle(0.0, 1.0, 2.0, 3.0)
+        val labels = averageLinkage(
+            v, 4, 2, minSimilarity = 0.5f,
+            anchors = intArrayOf(1, 1, -1, -1),
+            cannotLink = listOf(2 to 0, 2 to 1),
+        )
+        assertEquals(labels[0], labels[1])
+        assert(labels[2] != labels[0]) { "запрет нарушен" }
+        // 3 похожа на обоих — может уйти к любой группе, но 2 и группа 0/1 не встретятся.
+    }
+
+    @Test
+    fun differentConfirmedPeopleNeverMerge() {
+        val v = circle(0.0, 1.0, 2.0, 3.0)
+        val labels = averageLinkage(v, 4, 2, minSimilarity = 0.1f, anchors = intArrayOf(1, 1, 2, 2))
+        assertEquals(labels[0], labels[1])
+        assertEquals(labels[2], labels[3])
+        assert(labels[0] != labels[2])
+    }
 }

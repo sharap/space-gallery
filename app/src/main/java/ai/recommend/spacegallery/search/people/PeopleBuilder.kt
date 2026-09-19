@@ -69,19 +69,39 @@ class PeopleBuilder(
         val dim = faces.first().embedding.size / 4
         // Плотная матрица сходства n² — при очень больших медиатеках кластеризуем самые чёткие
         // лица, остальные привязываем к ближайшему человеку по строгому порогу.
+        // Подтверждённые лица — первыми: они всегда попадают в плотную часть кластеризации.
         val valid = faces.filter { it.embedding.size == dim * 4 }
-            .sortedByDescending { it.pixelSize() * it.score }
+            .sortedWith(compareBy<FaceClusterRow> { it.lockedPersonId == null }.thenByDescending { it.pixelSize() * it.score })
         val n = valid.size
         val vectors = FloatArray(n * dim)
         valid.forEachIndexed { i, row -> VectorMath.fromBytes(row.embedding).copyInto(vectors, i * dim) }
 
         val minSimilarity = 1f - s.faceEps
         val core = minOf(n, MAX_DENSE_FACES)
-        val coreLabels = averageLinkage(vectors, core, dim, minSimilarity)
+
+        // Ручные правки как ограничения: подтверждённые лица — заранее вместе, «это не он» — запрет.
+        val anchorOf = valid.map { it.lockedPersonId }
+        val anchors = IntArray(core) { i -> anchorOf[i]?.toInt() ?: -1 }
+        val indexOfFace = valid.withIndex().associate { (i, f) -> f.id to i }
+        val rejected = dao.getRejections().groupBy({ it.personId }) { it.faceId }
+        val lockedIndices = (0 until core).filter { anchorOf[it] != null }.groupBy { anchorOf[it]!! }
+        val cannotLink = rejected.flatMap { (personId, faceIds) ->
+            val anchorsOfPerson = lockedIndices[personId].orEmpty()
+            faceIds.mapNotNull { indexOfFace[it] }.filter { it < core }.flatMap { f -> anchorsOfPerson.map { f to it } }
+        }
+
+        val coreLabels = averageLinkage(vectors, core, dim, minSimilarity, anchors, cannotLink)
         val clusters = (0 until core).groupBy { coreLabels[it] }.values
-            .filter { it.size >= MIN_PTS }
+            // Подтверждённый человек остаётся, даже если у него меньше MIN_PTS лиц.
+            .filter { members -> members.size >= MIN_PTS || members.any { anchorOf[it] != null } }
             .mapTo(ArrayList()) { it.toMutableList() }
-        if (core < n) attachRemaining(clusters, core until n, vectors, dim, minSimilarity + ATTACH_MARGIN)
+        if (core < n) {
+            attachRemaining(clusters, core until n, vectors, dim, minSimilarity + ATTACH_MARGIN) { face, cluster ->
+                // Лицо «это не он» не привязываем к этому человеку.
+                val person = cluster.firstNotNullOfOrNull { anchorOf[it] }
+                person == null || valid[face].id !in rejected[person].orEmpty()
+            }
+        }
         clusters.sortByDescending { it.size }
 
         // Обложки выбираются и рисуются до транзакции: декодирование оригиналов — долгое.
@@ -95,21 +115,24 @@ class PeopleBuilder(
 
         db.withTransaction {
             dao.clearAssignments()
-            val used = HashSet<Long>()
+            // Подтверждённые люди закреплены за своими группами — их не может «унаследовать» другая.
+            val used = clusters.mapNotNullTo(HashSet()) { members -> members.firstNotNullOfOrNull { anchorOf[it] } }
             val result = ArrayList<PersonEntity>()
             clusters.forEachIndexed { position, members ->
                 val coverFace = covers[position]
                 val cover = coverFace.id
                 val avatar = avatarsByFace[cover]
                 val faceIds = members.map { valid[it].id }
-                // Кому раньше принадлежало большинство лиц группы — тот человек (и его имя) сохраняется.
-                val previous = members.mapNotNull { valid[it].personId }.groupingBy { it }.eachCount()
+                val anchored = members.firstNotNullOfOrNull { anchorOf[it] }
+                // Иначе — кому раньше принадлежало большинство лиц группы (его имя сохраняется).
+                val previous = anchored ?: members.mapNotNull { valid[it].personId }.groupingBy { it }.eachCount()
                     .filter { (id, count) -> id !in used && count >= members.size * INHERIT_FRACTION }
                     .maxByOrNull { it.value }?.key
                 val person = if (previous != null && previous in oldPersons) {
                     oldPersons.getValue(previous).copy(coverFaceId = cover, position = position, avatar = avatar, avatarFaceId = cover)
                 } else {
-                    val fresh = PersonEntity(coverFaceId = cover, position = position, avatar = avatar, avatarFaceId = cover)
+                    // Подтверждённый человек, которого нет в таблице, восстанавливается с тем же id.
+                    val fresh = PersonEntity(id = anchored ?: 0, coverFaceId = cover, position = position, avatar = avatar, avatarFaceId = cover)
                     fresh.copy(id = dao.insertPerson(fresh))
                 }
                 used += person.id
@@ -124,13 +147,21 @@ class PeopleBuilder(
     }
 
     /** Лица сверх [MAX_DENSE_FACES] — к человеку с самым похожим центром, если сходство ≥ [threshold]. */
-    private fun attachRemaining(clusters: List<MutableList<Int>>, rest: IntRange, vectors: FloatArray, dim: Int, threshold: Float) {
+    private fun attachRemaining(
+        clusters: List<MutableList<Int>>,
+        rest: IntRange,
+        vectors: FloatArray,
+        dim: Int,
+        threshold: Float,
+        allowed: (face: Int, cluster: List<Int>) -> Boolean,
+    ) {
         val centroids = clusters.map { members ->
             VectorMath.l2Normalize(FloatArray(dim) { k -> members.sumOf { vectors[it * dim + k].toDouble() }.toFloat() })
         }
         for (i in rest) {
             val face = vectors.copyOfRange(i * dim, (i + 1) * dim)
-            val best = centroids.indices.maxByOrNull { VectorMath.dot(face, centroids[it]) } ?: return
+            val best = centroids.indices.filter { allowed(i, clusters[it]) }
+                .maxByOrNull { VectorMath.dot(face, centroids[it]) } ?: continue
             if (VectorMath.dot(face, centroids[best]) >= threshold) clusters[best] += i
         }
     }

@@ -34,7 +34,36 @@ data class FaceEntity(
     /** Миниатюра лица для аватара (JPEG ~128 px); удаляется вместе со строкой. */
     val thumbnail: ByteArray,
     val personId: Long? = null,
+    /**
+     * Лицо подтверждено пользователем как этот человек (дал имя, объединил людей). Такие лица
+     * при пересчёте всегда остаются вместе, а разные подтверждённые люди не сливаются.
+     */
+    val lockedPersonId: Long? = null,
 )
+
+/** «Это не он»: лицо не должно попасть к человеку (ограничение для кластеризации). */
+@Entity(
+    tableName = "face_rejection",
+    primaryKeys = ["faceId", "personId"],
+    indices = [Index("personId")],
+    foreignKeys = [
+        ForeignKey(entity = FaceEntity::class, parentColumns = ["id"], childColumns = ["faceId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["personId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class FaceRejectionEntity(val faceId: Long, val personId: Long)
+
+/** Подсказка «это тоже он?» для пары людей отклонена — больше не показывать. */
+@Entity(
+    tableName = "person_pair_dismissal",
+    primaryKeys = ["personA", "personB"],
+    indices = [Index("personB")],
+    foreignKeys = [
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["personA"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["personB"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class PersonPairDismissalEntity(val personA: Long, val personB: Long)
 
 /** Человек — группа лиц (DBSCAN). Имя задаёт пользователь; сохраняется при пересчёте групп. */
 @Entity(tableName = "person")
@@ -62,6 +91,7 @@ data class FaceClusterRow(
     val id: Long,
     val embedding: ByteArray,
     val personId: Long?,
+    val lockedPersonId: Long?,
     val left: Float,
     val top: Float,
     val right: Float,
@@ -112,6 +142,44 @@ interface FaceDao {
     )
     suspend fun countPending(version: Int): Int
 
+    // --- Ручные правки людей ---
+
+    @Query("SELECT * FROM face_rejection")
+    suspend fun getRejections(): List<FaceRejectionEntity>
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun insertRejections(rejections: List<FaceRejectionEntity>)
+
+    /** Закрепить все текущие лица человека за ним (подтверждение группы). */
+    @Query("UPDATE face SET lockedPersonId = :personId WHERE personId = :personId")
+    suspend fun lockFacesOf(personId: Long)
+
+    /** Объединение: лица источников — к целевому человеку, закреплены. */
+    @Query("UPDATE face SET personId = :target, lockedPersonId = :target WHERE personId IN (:sources) OR lockedPersonId IN (:sources) OR personId = :target")
+    suspend fun moveAndLock(sources: List<Long>, target: Long)
+
+    @Query("UPDATE OR IGNORE face_rejection SET personId = :target WHERE personId IN (:sources)")
+    suspend fun moveRejections(sources: List<Long>, target: Long)
+
+    @Query("DELETE FROM person WHERE id IN (:ids)")
+    suspend fun deletePersons(ids: List<Long>)
+
+    @Query("SELECT id FROM face WHERE personId = :personId AND mediaId IN (:mediaIds)")
+    suspend fun faceIdsOf(personId: Long, mediaIds: List<Long>): List<Long>
+
+    @Query("UPDATE face SET personId = NULL, lockedPersonId = NULL WHERE id IN (:faceIds)")
+    suspend fun detach(faceIds: List<Long>)
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun insertDismissal(dismissal: PersonPairDismissalEntity)
+
+    @Query("SELECT * FROM person_pair_dismissal WHERE personA = :personId OR personB = :personId")
+    suspend fun getDismissals(personId: Long): List<PersonPairDismissalEntity>
+
+    /** Векторы лиц по людям — для подсказок «это тоже он?». */
+    @Query("SELECT id, embedding, personId, lockedPersonId, left, top, right, bottom, score, '' AS uri, 0 AS width, 0 AS height FROM face WHERE personId IS NOT NULL")
+    suspend fun getAssignedFaces(): List<FaceClusterRow>
+
     @Query("SELECT * FROM face WHERE mediaId IN (:mediaIds)")
     suspend fun getFacesForMedia(mediaIds: List<Long>): List<FaceEntity>
 
@@ -140,7 +208,7 @@ interface FaceDao {
     /** Лица для кластеризации: только с видимых фото (не скрытых и не деликатных). */
     @Query(
         """
-        SELECT f.id, f.embedding, f.personId, f.left, f.top, f.right, f.bottom, f.score,
+        SELECT f.id, f.embedding, f.personId, f.lockedPersonId, f.left, f.top, f.right, f.bottom, f.score,
                m.uri, m.width, m.height
         FROM face f
         JOIN media m ON m.id = f.mediaId
@@ -206,6 +274,17 @@ interface FaceDao {
         """
     )
     fun observePeopleOnMedia(mediaId: Long): Flow<List<PersonFaceRow>>
+
+    @Query(
+        """
+        SELECT p.id, p.name,
+               COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) AS thumbnail,
+               (SELECT COUNT(DISTINCT f.mediaId) FROM face f JOIN media m ON m.id = f.mediaId
+                WHERE f.personId = p.id AND m.isHiddenByUser = 0) AS mediaCount
+        FROM person p
+        """
+    )
+    suspend fun getPersonRows(): List<PersonRow>
 
     @Query("SELECT name FROM person WHERE id = :personId")
     fun observeName(personId: Long): Flow<String?>

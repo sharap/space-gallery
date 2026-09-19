@@ -65,11 +65,17 @@ class FaceIndexer(
      * имена не потерялись, новое лицо получает человека старого лица с тем же местом в кадре.
      */
     private suspend fun inheritPersons(mediaIds: List<Long>, faces: List<FaceEntity>): List<FaceEntity> {
-        val old = dao.getFacesForMedia(mediaIds).filter { it.personId != null }.groupBy { it.mediaId }
+        val old = dao.getFacesForMedia(mediaIds).filter { it.personId != null || it.lockedPersonId != null }.groupBy { it.mediaId }
         if (old.isEmpty()) return faces
         return faces.map { face ->
             val match = old[face.mediaId]?.maxByOrNull { iou(it, face) }
-            if (match != null && iou(match, face) >= INHERIT_IOU) face.copy(personId = match.personId) else face
+            // Подтверждение (закрепление) переходит вместе с человеком.
+            // TODO: «это не он» привязано к старому лицу и при повторном поиске теряется.
+            if (match != null && iou(match, face) >= INHERIT_IOU) {
+                face.copy(personId = match.personId, lockedPersonId = match.lockedPersonId)
+            } else {
+                face
+            }
         }
     }
 

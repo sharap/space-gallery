@@ -95,7 +95,7 @@ class AppContainer(context: Context) {
     val peopleBuilder: PeopleBuilder by lazy {
         PeopleBuilder(database, settings, AvatarRenderer(appContext.contentResolver))
     }
-    val people: PeopleRepository by lazy { PeopleRepository(database.faceDao(), mediaRepository) }
+    val people: PeopleRepository by lazy { PeopleRepository(database, mediaRepository, peopleBuilder, appScope) }
     val smartAlbums: SmartAlbumRepository by lazy { SmartAlbumRepository(database.smartAlbumDao(), mediaRepository) }
     val duplicateFinder: DuplicateFinder by lazy { DuplicateFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
 
