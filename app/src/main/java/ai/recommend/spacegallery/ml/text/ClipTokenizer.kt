@@ -2,19 +2,15 @@ package ai.recommend.spacegallery.ml.text
 
 import ai.recommend.spacegallery.ml.onnx.ModelSpecs
 import android.content.Context
-import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
  * Byte-level BPE токенизатор OpenAI CLIP.
- * Словарь: `assets/models/clip_tokenizer/vocab.json` и `merges.txt` (из HF openai/clip-vit-base-patch32).
+ * Словарь `models/clip_tokenizer/{vocab.json,merges.txt}` скачивается вместе с моделью в `filesDir`;
+ * в debug-сборке он также лежит в assets.
  *
- * Важно: оригинальный CLIP обучен на английском. Для запросов на русском нужен
- * мультиязычный текстовый энкодер (см. models/README.md).
+ * Оригинальный CLIP обучен на английском; запросы на других языках обрабатывает
+ * [WordPieceTokenizer] + многоязычный энкодер (см. [TextEmbedder]).
  */
 class ClipTokenizer(
     private val encoder: Map<String, Int>,
@@ -26,7 +22,7 @@ class ClipTokenizer(
     private val eot = encoder.getValue("<|endoftext|>")
     private val cache = HashMap<String, List<String>>()
 
-    override fun encode(text: String): LongArray {
+    override fun encode(text: String): Encoding {
         val clean = text.trim().replace(WHITESPACE, " ").lowercase()
         val ids = ArrayList<Int>(contextLength)
         ids += sot
@@ -36,7 +32,11 @@ class ClipTokenizer(
             bpe(token).mapNotNullTo(ids) { encoder[it] }
         }
         val truncated = ids.take(contextLength - 1) + eot
-        return LongArray(contextLength) { i -> truncated.getOrNull(i)?.toLong() ?: 0L }
+        // Как в HF CLIPTokenizer: pad_token = <|endoftext|>.
+        return Encoding(
+            inputIds = LongArray(contextLength) { i -> (truncated.getOrNull(i) ?: eot).toLong() },
+            attentionMask = LongArray(contextLength) { i -> if (i < truncated.size) 1L else 0L },
+        )
     }
 
     private fun bpe(token: String): List<String> = synchronized(cache) {
@@ -65,7 +65,6 @@ class ClipTokenizer(
     }
 
     companion object {
-        private const val TAG = "ClipTokenizer"
         private const val DIR = "models/clip_tokenizer"
 
         private val WHITESPACE = Regex("\\s+")
@@ -90,12 +89,12 @@ class ClipTokenizer(
         }
 
         fun load(context: Context): ClipTokenizer {
-            val vocabJson = context.assets.open("$DIR/vocab.json").bufferedReader().use { it.readText() }
+            val vocabJson = openModelFile(context, "$DIR/vocab.json").bufferedReader().use { it.readText() }
             val vocab = JSONObject(vocabJson).let { json ->
                 json.keys().asSequence().associateWith { json.getInt(it) }
             }
             val ranks = HashMap<Pair<String, String>, Int>()
-            context.assets.open("$DIR/merges.txt").bufferedReader().useLines { lines ->
+            openModelFile(context, "$DIR/merges.txt").bufferedReader().useLines { lines ->
                 lines.filter { it.isNotBlank() && !it.startsWith("#version") }
                     .forEachIndexed { rank, line ->
                         val (a, b) = line.split(' ', limit = 2)
@@ -105,19 +104,7 @@ class ClipTokenizer(
             return ClipTokenizer(vocab, ranks)
         }
 
-        /** Загружает словарь один раз при первом обращении; null — если файлов нет. */
-        fun lazyFromAssets(context: Context): TokenizerProvider {
-            val mutex = Mutex()
-            var loaded: Result<Tokenizer>? = null
-            return TokenizerProvider {
-                mutex.withLock {
-                    val result = loaded ?: withContext(Dispatchers.IO) {
-                        runCatching<Tokenizer> { load(context) }
-                            .onFailure { Log.w(TAG, "CLIP tokenizer не найден в assets/$DIR", it) }
-                    }.also { loaded = it }
-                    result.getOrNull()
-                }
-            }
-        }
+        fun provider(context: Context): TokenizerProvider =
+            TokenizerProvider.lazy("CLIP") { load(context) }
     }
 }

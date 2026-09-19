@@ -15,4 +15,4 @@
 local.properties
 
 # Большие ONNX-модели не коммитим (см. models/README.md)
-/app/src/main/assets/models/*.onnx
+/app/src/debug/assets/models/*.onnx

@@ -6,12 +6,13 @@ import androidx.core.graphics.scale
 import java.nio.FloatBuffer
 import kotlin.math.min
 
-/** Bitmap -> нормализованный тензор NCHW [1,3,S,S] (resize короткой стороны + center crop). */
+/** Bitmap -> нормализованный тензор NCHW [1,3,S,S] (center crop или растяжение — см. [ImageInputSpec.centerCrop]). */
 object ImageTensorizer {
 
     fun toNchw(bitmap: Bitmap, spec: ImageInputSpec): FloatBuffer {
         val s = spec.size
-        val square = centerCropSquare(bitmap).let { if (it.width == s) it else it.scale(s, s) }
+        val source = if (spec.centerCrop) centerCropSquare(bitmap) else bitmap
+        val square = if (source.width == s && source.height == s) source else source.scale(s, s)
         val pixels = IntArray(s * s)
         square.getPixels(pixels, 0, s, 0, 0, s, s)
 

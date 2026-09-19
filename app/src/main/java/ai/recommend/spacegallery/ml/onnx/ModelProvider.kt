@@ -51,7 +51,11 @@ class ModelProvider(
     private fun assetExists(id: ModelId): Boolean =
         runCatching { context.assets.list(MODELS_DIR)?.contains(id.fileName) == true }.getOrDefault(false)
 
-    /** ORT на Android создаёт сессию из файла, поэтому модель из assets один раз копируется во внутреннее хранилище. */
+    /**
+     * Скачанная модель используется как есть. Модель из assets (только debug) один раз копируется
+     * во внутреннее хранилище: ORT создаёт сессию из файла.
+     * TODO: загрузчик моделей для релиза (WorkManager + проверка SHA-256) пишет в [userModelFile].
+     */
     private fun resolveFile(id: ModelId): File? {
         userModelFile(id).takeIf { it.exists() }?.let { return it }
         if (!assetExists(id)) return null

@@ -9,10 +9,13 @@ import ai.recommend.spacegallery.ml.hash.PerceptualHasher
 import ai.recommend.spacegallery.ml.image.BitmapLoader
 import ai.recommend.spacegallery.ml.image.ImageEmbedder
 import ai.recommend.spacegallery.ml.image.SensitiveContentClassifier
+import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.ml.onnx.OnnxRuntimeHolder
 import ai.recommend.spacegallery.ml.text.ClipTokenizer
 import ai.recommend.spacegallery.ml.text.TextEmbedder
+import ai.recommend.spacegallery.ml.text.TextEncoderBackend
+import ai.recommend.spacegallery.ml.text.WordPieceTokenizer
 import ai.recommend.spacegallery.search.DuplicateFinder
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.SemanticSearchEngine
@@ -51,7 +54,11 @@ class AppContainer(context: Context) {
     val bitmapLoader: BitmapLoader by lazy { BitmapLoader(appContext.contentResolver) }
     val imageEmbedder: ImageEmbedder by lazy { ImageEmbedder(models) }
     val textEmbedder: TextEmbedder by lazy {
-        TextEmbedder(models, ClipTokenizer.lazyFromAssets(appContext))
+        TextEmbedder(
+            models = models,
+            english = TextEncoderBackend(ModelId.CLIP_TEXT, ClipTokenizer.provider(appContext)),
+            multilingual = TextEncoderBackend(ModelId.CLIP_TEXT_MULTILINGUAL, WordPieceTokenizer.provider(appContext)),
+        )
     }
     val sensitiveClassifier: SensitiveContentClassifier by lazy { SensitiveContentClassifier(models) }
     val perceptualHasher: PerceptualHasher by lazy { PerceptualHasher() }
