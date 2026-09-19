@@ -28,6 +28,8 @@ data class MediaEntity(
     val durationMs: Long,
     val bucketId: Long,
     val bucketName: String,
+    /** Папка файла относительно тома, например `DCIM/Camera/` (MediaStore.RELATIVE_PATH, API 29+). */
+    @ColumnInfo(defaultValue = "") val relativePath: String = "",
     @ColumnInfo(defaultValue = "0") val isFavorite: Boolean = false,
     @ColumnInfo(defaultValue = "0") val isHiddenByUser: Boolean = false,
 )
@@ -81,6 +83,7 @@ data class HashRow(val mediaId: Long, val perceptualHash: Long)
 data class AlbumRow(
     val bucketId: Long,
     val bucketName: String,
+    val relativePath: String,
     val coverUri: String,
     val itemCount: Int,
 )

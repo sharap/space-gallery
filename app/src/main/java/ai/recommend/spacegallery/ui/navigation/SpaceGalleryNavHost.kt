@@ -38,7 +38,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.toRoute
 
 private data class TopLevelTab(val route: Any, @StringRes val label: Int, val icon: ImageVector)
 
@@ -96,12 +95,10 @@ fun SpaceGalleryNavHost() {
             composable<AlbumsRoute> {
                 AlbumsScreen(onOpenAlbum = { navController.navigate(AlbumRoute(it.id, it.name)) })
             }
-            composable<AlbumRoute> { entry ->
-                val route = entry.toRoute<AlbumRoute>()
+            composable<AlbumRoute> {
                 AlbumDetailScreen(
-                    title = route.name,
                     onBack = navController::popBackStack,
-                    onOpen = { openViewer(it, ViewerQueue.ALBUM, route.albumId) },
+                    onOpen = { item, albumId -> openViewer(item, ViewerQueue.ALBUM, albumId) },
                 )
             }
             composable<SearchRoute> {

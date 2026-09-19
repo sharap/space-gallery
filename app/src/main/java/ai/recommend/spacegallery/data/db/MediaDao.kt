@@ -48,7 +48,7 @@ interface MediaDao {
 
     @Query(
         """
-        SELECT bucketId, bucketName,
+        SELECT bucketId, bucketName, MAX(relativePath) AS relativePath,
                (SELECT uri FROM media m2 WHERE m2.bucketId = m.bucketId AND m2.isHiddenByUser = 0
                 ORDER BY dateTaken DESC LIMIT 1) AS coverUri,
                COUNT(*) AS itemCount
@@ -92,6 +92,10 @@ interface MediaDao {
         """
     )
     fun observeByIds(ids: List<Long>): Flow<List<MediaWithAnalysis>>
+
+    /** Все файлы альбомов, включая скрытые вручную (операции над папкой целиком). */
+    @Query("SELECT * FROM media WHERE bucketId IN (:bucketIds)")
+    suspend fun getByBuckets(bucketIds: List<Long>): List<MediaEntity>
 
     @Query("SELECT id, isFavorite, isHiddenByUser FROM media")
     suspend fun getLocalFlags(): List<LocalFlagsRow>

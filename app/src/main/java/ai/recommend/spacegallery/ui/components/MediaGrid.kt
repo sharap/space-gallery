@@ -188,9 +188,9 @@ fun MediaGrid(
     }
 }
 
-/** Число столбцов сетки — общая настройка приложения, меняется щипком. */
+/** Число столбцов сетки — общая настройка приложения (фото и альбомы), меняется щипком. */
 @Composable
-private fun rememberGridColumns(): Pair<Int, (Int) -> Unit> {
+fun rememberGridColumns(): Pair<Int, (Int) -> Unit> {
     val settings = (LocalContext.current.applicationContext as SpaceGalleryApp).container.settings
     val scope = rememberCoroutineScope()
     val flow = remember(settings) { settings.settings.map { it.gridColumns } }

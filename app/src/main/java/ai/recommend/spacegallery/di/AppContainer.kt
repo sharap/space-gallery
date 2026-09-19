@@ -2,6 +2,7 @@ package ai.recommend.spacegallery.di
 
 import ai.recommend.spacegallery.data.db.AppDatabase
 import ai.recommend.spacegallery.data.media.MediaDeleter
+import ai.recommend.spacegallery.data.media.MediaMover
 import ai.recommend.spacegallery.data.media.MediaStoreSource
 import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.data.settings.SettingsRepository
@@ -44,8 +45,9 @@ class AppContainer(context: Context) {
     // --- data ---
     val mediaStoreSource: MediaStoreSource by lazy { MediaStoreSource(appContext.contentResolver) }
     val mediaDeleter: MediaDeleter by lazy { MediaDeleter(appContext.contentResolver) }
+    val mediaMover: MediaMover by lazy { MediaMover(appContext.contentResolver) }
     val mediaRepository: MediaRepository by lazy {
-        MediaRepository(database, mediaStoreSource, mediaDeleter, settings)
+        MediaRepository(database, mediaStoreSource, mediaDeleter, mediaMover, settings)
     }
 
     // --- ml ---

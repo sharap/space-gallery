@@ -5,7 +5,13 @@ import ai.recommend.spacegallery.data.db.AppDatabase
 import ai.recommend.spacegallery.data.db.MediaDao
 import ai.recommend.spacegallery.data.db.MediaWithAnalysis
 import ai.recommend.spacegallery.data.media.DeleteResult
+import ai.recommend.spacegallery.data.media.AlbumNames
 import ai.recommend.spacegallery.data.media.MediaDeleter
+import ai.recommend.spacegallery.data.media.MediaMover
+import ai.recommend.spacegallery.data.media.MoveResult
+import android.content.IntentSender
+import android.os.Build
+import androidx.annotation.RequiresApi
 import ai.recommend.spacegallery.data.media.MediaStoreSource
 import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.domain.Album
@@ -23,6 +29,7 @@ class MediaRepository(
     db: AppDatabase,
     private val source: MediaStoreSource,
     private val deleter: MediaDeleter,
+    private val mover: MediaMover,
     private val settings: SettingsRepository,
 ) {
     private val dao = db.mediaDao()
@@ -81,6 +88,39 @@ class MediaRepository(
         }
     }
 
+    // --- Управление альбомами (альбом = папка) ---
+
+    /** Перенос файлов между папками требует Android 11+ (MediaStore.createWriteRequest). */
+    val supportsAlbumManagement: Boolean get() = mover.isSupported
+
+    /** Системный диалог «Разрешить изменить N файлов?» для [items]. */
+    @RequiresApi(Build.VERSION_CODES.R)
+    fun createWriteRequest(items: List<MediaItem>): IntentSender = mover.createWriteRequest(items.map { it.uri })
+
+    /** Все файлы альбомов, включая скрытые вручную (операции над папкой целиком). */
+    suspend fun getAlbumItems(albumIds: List<Long>): List<MediaItem> =
+        albumIds.chunked(MediaDao.SQLITE_MAX_ARGS)
+            .flatMap { dao.getByBuckets(it) }
+            .map { MediaWithAnalysis(it, sensitiveScore = null).toDomain() }
+
+    /** Перенести файлы в папку [relativePath]; вызывать после согласия пользователя. */
+    suspend fun moveToFolder(items: List<MediaItem>, relativePath: String): MoveResult {
+        val result = mover.moveTo(items.map { it.uri }, relativePath)
+        syncWithMediaStore()
+        return result
+    }
+
+    /**
+     * Переименование альбома = перенос всех его файлов в соседнюю папку с новым именем.
+     * Возвращает результат и новый id альбома (BUCKET_ID зависит от пути).
+     */
+    suspend fun renameAlbum(items: List<MediaItem>, currentPath: String, newName: String): Pair<MoveResult, Long?> {
+        val result = mover.moveTo(items.map { it.uri }, AlbumNames.renamedPath(currentPath, newName))
+        val newId = items.firstOrNull()?.let { mover.bucketIdOf(it.uri) }
+        syncWithMediaStore()
+        return result to newId
+    }
+
     /** Полная синхронизация локальной БД с MediaStore. */
     suspend fun syncWithMediaStore() {
         dao.replaceFromMediaStore(source.queryAll())
@@ -130,6 +170,7 @@ private fun MediaWithAnalysis.toDomain(): MediaItem = MediaItem(
 private fun AlbumRow.toDomain() = Album(
     id = bucketId,
     name = bucketName,
+    relativePath = relativePath,
     coverUri = coverUri.toUri(),
     itemCount = itemCount,
 )

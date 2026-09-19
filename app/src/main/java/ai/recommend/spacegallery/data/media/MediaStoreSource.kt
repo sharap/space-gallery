@@ -3,6 +3,7 @@ package ai.recommend.spacegallery.data.media
 import ai.recommend.spacegallery.data.db.MediaEntity
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.os.Build
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,6 +36,7 @@ class MediaStoreSource(private val resolver: ContentResolver) {
             val durationCol = c.getColumnIndexOrThrow(COL_DURATION)
             val bucketIdCol = c.getColumnIndexOrThrow(COL_BUCKET_ID)
             val bucketNameCol = c.getColumnIndexOrThrow(COL_BUCKET_NAME)
+            val relativePathCol = c.getColumnIndex(COL_RELATIVE_PATH) // нет на Android 9
 
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
@@ -59,6 +61,7 @@ class MediaStoreSource(private val resolver: ContentResolver) {
                     durationMs = c.getLong(durationCol),
                     bucketId = c.getLong(bucketIdCol),
                     bucketName = c.getString(bucketNameCol).orEmpty(),
+                    relativePath = if (relativePathCol >= 0) c.getString(relativePathCol).orEmpty() else "",
                 )
             }
         }
@@ -72,6 +75,7 @@ class MediaStoreSource(private val resolver: ContentResolver) {
         const val COL_DURATION = "duration"
         const val COL_BUCKET_ID = "bucket_id"
         const val COL_BUCKET_NAME = "bucket_display_name"
+        const val COL_RELATIVE_PATH = "relative_path"
 
         val PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,
@@ -87,6 +91,6 @@ class MediaStoreSource(private val resolver: ContentResolver) {
             COL_DURATION,
             COL_BUCKET_ID,
             COL_BUCKET_NAME,
-        )
+        ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) arrayOf(COL_RELATIVE_PATH) else emptyArray()
     }
 }

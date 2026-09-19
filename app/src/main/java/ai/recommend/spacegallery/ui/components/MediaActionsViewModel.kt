@@ -2,13 +2,26 @@ package ai.recommend.spacegallery.ui.components
 
 import ai.recommend.spacegallery.data.media.DeleteResult
 import ai.recommend.spacegallery.data.repository.MediaRepository
+import ai.recommend.spacegallery.domain.Album
 import ai.recommend.spacegallery.domain.MediaItem
+import ai.recommend.spacegallery.ui.albums.AlbumOperations
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 
 /** Групповые действия над выбранными медиа (контекстная панель мультивыбора). */
 class MediaActionsViewModel(private val repository: MediaRepository) : ViewModel() {
+
+    /** «Отправить в альбом»: перенос в папку альбома с системным разрешением. */
+    val albumOperations = AlbumOperations(repository)
+
+    val albums: StateFlow<List<Album>> = repository.observeAlbums()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun onWriteGranted() = viewModelScope.launch { albumOperations.onWriteGranted() }
 
     /** Ожидают подтверждения системного диалога удаления. */
     private var pendingTrash: List<MediaItem> = emptyList()

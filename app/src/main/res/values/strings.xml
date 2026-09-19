@@ -24,6 +24,10 @@
     <string name="action_clear_selection">Снять выделение</string>
     <string name="action_select_all">Выбрать все</string>
     <string name="action_more">Ещё</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_create">Создать</string>
+    <string name="action_rename">Переименовать</string>
+    <string name="action_send_to_album">Отправить в альбом</string>
     <string name="action_clear">Очистить</string>
     <string name="action_favorite">В избранное</string>
 
@@ -53,6 +57,36 @@
     <string name="similar_title">Похожие</string>
     <string name="similar_empty">Похожих фото не найдено</string>
     <string name="similar_not_indexed">Это фото ещё не проанализировано</string>
+
+    <string name="album_new">Новый альбом</string>
+    <string name="album_name_hint">Название альбома</string>
+    <string name="album_name_invalid">Название не должно содержать / \\ : * ? \" &lt; &gt; |</string>
+    <string name="album_name_taken">Альбом с таким названием уже есть</string>
+    <string name="album_rename_title">Переименовать альбом</string>
+    <string name="album_delete">Удалить альбом</string>
+    <plurals name="album_delete_title">
+        <item quantity="one">Удалить %d альбом?</item>
+        <item quantity="few">Удалить %d альбома?</item>
+        <item quantity="many">Удалить %d альбомов?</item>
+        <item quantity="other">Удалить %d альбома?</item>
+    </plurals>
+    <plurals name="album_delete_text">
+        <item quantity="one">%d файл будет перемещён в корзину.</item>
+        <item quantity="few">%d файла будут перемещены в корзину.</item>
+        <item quantity="many">%d файлов будут перемещены в корзину.</item>
+        <item quantity="other">%d файла будут перемещены в корзину.</item>
+    </plurals>
+    <plurals name="album_moved">
+        <item quantity="one">Перемещён %d файл</item>
+        <item quantity="few">Перемещено %d файла</item>
+        <item quantity="many">Перемещено %d файлов</item>
+        <item quantity="other">Перемещено %d файла</item>
+    </plurals>
+    <string name="album_move_failed">Не удалось переместить: %d — Android не разрешил изменить эти файлы</string>
+    <string name="album_move_not_allowed">Android не разрешает переносить сюда файлы</string>
+    <string name="album_rename_not_allowed">Недоступно для папки вне DCIM, Pictures и Movies</string>
+    <string name="album_renamed">Альбом переименован</string>
+    <string name="album_deleted">Перемещено в корзину</string>
 
     <string name="duplicates_title">Дубликаты</string>
     <string name="duplicates_desc">Одинаковые фото и серии похожих снимков</string>

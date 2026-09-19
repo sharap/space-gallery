@@ -24,3 +24,15 @@ fun rememberTrashConfirmation(onConfirmed: () -> Unit): (DeleteResult) -> Unit {
         }
     }
 }
+
+/**
+ * Системный диалог разрешения на изменение файлов (MediaStore.createWriteRequest):
+ * [onGranted] вызывается, если пользователь согласился.
+ */
+@Composable
+fun rememberWriteRequestLauncher(onGranted: () -> Unit): (android.content.IntentSender) -> Unit {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) onGranted()
+    }
+    return { sender -> launcher.launch(IntentSenderRequest.Builder(sender).build()) }
+}

@@ -3,6 +3,8 @@ package ai.recommend.spacegallery.ui.components
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.domain.MediaType
+import ai.recommend.spacegallery.ui.albums.AlbumEventEffect
+import ai.recommend.spacegallery.ui.albums.AlbumPickerSheet
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import android.content.ClipData
 import android.content.Context
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
@@ -60,6 +63,10 @@ fun SelectionTopBar(
     val selected = items.filter { it.id in selection }
     val allFavorite = selected.isNotEmpty() && selected.all { it.isFavorite }
     var menuOpen by remember { mutableStateOf(false) }
+    var pickingAlbum by remember { mutableStateOf(false) }
+    val albums by actions.albums.collectAsStateWithLifecycle()
+    val launchWrite = rememberWriteRequestLauncher(onGranted = { actions.onWriteGranted() })
+    AlbumEventEffect(actions.albumOperations.events, onMoved = { selection.clear() })
     val confirmTrash = rememberTrashConfirmation {
         actions.onTrashConfirmed()
         selection.clear()
@@ -98,6 +105,15 @@ fun SelectionTopBar(
                             selection.set(items.map { it.id }.toSet())
                         },
                     )
+                    if (actions.albumOperations.isSupported) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_send_to_album)) },
+                            onClick = {
+                                menuOpen = false
+                                pickingAlbum = true
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(if (hiddenMode) R.string.action_unhide else R.string.action_hide)) },
                         onClick = {
@@ -110,6 +126,18 @@ fun SelectionTopBar(
             }
         },
     )
+
+    if (pickingAlbum) {
+        AlbumPickerSheet(
+            albums = albums,
+            types = selected.mapTo(HashSet()) { it.type },
+            onDismiss = { pickingAlbum = false },
+            onPick = { target ->
+                pickingAlbum = false
+                scope.launch { actions.albumOperations.requestMove(selected, target)?.let(launchWrite) }
+            },
+        )
+    }
 }
 
 private fun share(context: Context, items: List<MediaItem>) {

@@ -28,6 +28,8 @@ data class MediaItem(
 data class Album(
     val id: Long,
     val name: String,
+    /** Папка альбома, например `DCIM/Camera/`; пусто на Android 9. */
+    val relativePath: String,
     val coverUri: Uri,
     val itemCount: Int,
 )
