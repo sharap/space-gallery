@@ -81,6 +81,15 @@ interface MediaDao {
     @Query("UPDATE media SET isHiddenByUser = :hidden WHERE id IN (:ids)")
     suspend fun setHidden(ids: List<Long>, hidden: Boolean)
 
+    @Query(
+        """
+        SELECT m.*, a.sensitiveScore AS sensitiveScore FROM media m
+        LEFT JOIN media_analysis a ON a.mediaId = m.id
+        WHERE m.id IN (:ids)
+        """
+    )
+    fun observeByIds(ids: List<Long>): Flow<List<MediaWithAnalysis>>
+
     @Query("SELECT id, isFavorite, isHiddenByUser FROM media")
     suspend fun getLocalFlags(): List<LocalFlagsRow>
 

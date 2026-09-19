@@ -1,6 +1,7 @@
 package ai.recommend.spacegallery.ui.navigation
 
 import ai.recommend.spacegallery.R
+import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.ui.albums.AlbumDetailScreen
 import ai.recommend.spacegallery.ui.albums.AlbumsScreen
 import ai.recommend.spacegallery.ui.duplicates.DuplicatesScreen
@@ -82,10 +83,15 @@ fun SpaceGalleryNavHost() {
             startDestination = GalleryRoute,
             modifier = Modifier.padding(bottom = padding.calculateBottomPadding()).consumeWindowInsets(padding),
         ) {
-            val openViewer = { mediaId: Long, albumId: Long? -> navController.navigate(ViewerRoute(mediaId, albumId)) }
+            fun openViewer(item: MediaItem, queue: ViewerQueue, albumId: Long = 0) =
+                navController.navigate(ViewerRoute(item.id, queue, albumId))
+
+            /** Очередь просмотра — ровно этот список (поиск, похожие, дубликаты). */
+            fun openViewerList(item: MediaItem, queue: List<MediaItem>) =
+                navController.navigate(ViewerRoute(item.id, ViewerQueue.LIST, ids = queue.map { it.id }))
 
             composable<GalleryRoute> {
-                GalleryScreen(onOpen = { openViewer(it.id, null) })
+                GalleryScreen(onOpen = { openViewer(it, ViewerQueue.TIMELINE) })
             }
             composable<AlbumsRoute> {
                 AlbumsScreen(onOpenAlbum = { navController.navigate(AlbumRoute(it.id, it.name)) })
@@ -95,11 +101,11 @@ fun SpaceGalleryNavHost() {
                 AlbumDetailScreen(
                     title = route.name,
                     onBack = navController::popBackStack,
-                    onOpen = { openViewer(it.id, route.albumId) },
+                    onOpen = { openViewer(it, ViewerQueue.ALBUM, route.albumId) },
                 )
             }
             composable<SearchRoute> {
-                SearchScreen(onOpen = { navController.navigate(ViewerRoute(it.id)) })
+                SearchScreen(onOpen = ::openViewerList)
             }
             composable<MoreRoute> {
                 MoreScreen(
@@ -116,16 +122,16 @@ fun SpaceGalleryNavHost() {
                 )
             }
             composable<SimilarRoute> {
-                SimilarScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(ViewerRoute(it.id)) })
+                SimilarScreen(onBack = navController::popBackStack, onOpen = ::openViewerList)
             }
             composable<FavoritesRoute> {
-                FavoritesScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(ViewerRoute(it.id)) })
+                FavoritesScreen(onBack = navController::popBackStack, onOpen = { openViewer(it, ViewerQueue.FAVORITES) })
             }
             composable<DuplicatesRoute> {
-                DuplicatesScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(ViewerRoute(it.id)) })
+                DuplicatesScreen(onBack = navController::popBackStack, onOpen = ::openViewerList)
             }
             composable<HiddenRoute> {
-                HiddenScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(ViewerRoute(it.id)) })
+                HiddenScreen(onBack = navController::popBackStack, onOpen = { openViewer(it, ViewerQueue.HIDDEN) })
             }
             composable<SettingsRoute> {
                 SettingsScreen(onBack = navController::popBackStack)

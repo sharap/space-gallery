@@ -6,29 +6,27 @@ import ai.recommend.spacegallery.domain.MediaType
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.rememberTrashConfirmation
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -40,6 +38,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,14 +50,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
 @Composable
@@ -91,7 +93,14 @@ private fun ViewerPager(
     val initialPage = remember { items.indexOfFirst { it.id == viewModel.initialMediaId }.coerceAtLeast(0) }
     val pagerState = rememberPagerState(initialPage = initialPage) { items.size }
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
-    val current = items.getOrNull(pagerState.currentPage)
+    val toggleChrome = { chromeVisible = !chromeVisible }
+    // settledPage — страница, на которой пейджер остановился (не меняется во время свайпа).
+    val current = items.getOrNull(pagerState.settledPage)
+
+    val player = rememberViewerPlayer()
+    LaunchedEffect(current?.id) { player.bindTo(current) }
+
+    ImmersiveMode(enabled = !chromeVisible)
 
     var pendingTrash by remember { mutableStateOf<MediaItem?>(null) }
     val confirmTrash = rememberTrashConfirmation {
@@ -99,28 +108,17 @@ private fun ViewerPager(
         pendingTrash = null
     }
 
-    HorizontalPager(state = pagerState, key = { items[it].id }, modifier = Modifier.fillMaxSize()) { page ->
+    HorizontalPager(
+        state = pagerState,
+        key = { items[it].id },
+        beyondViewportPageCount = 1,
+        modifier = Modifier.fillMaxSize(),
+    ) { page ->
         val item = items[page]
-        Box(
-            Modifier
-                .fillMaxSize()
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                    chromeVisible = !chromeVisible
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            // TODO: pinch-to-zoom и double-tap zoom; встроенный видеоплеер (Media3 ExoPlayer).
-            AsyncImage(
-                model = item.uri,
-                contentDescription = item.displayName,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (item.type == MediaType.VIDEO) {
-                IconButton(onClick = { playExternally(context, item) }, modifier = Modifier.size(72.dp)) {
-                    Icon(Icons.Filled.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(64.dp))
-                }
-            }
+        val isCurrent = page == pagerState.settledPage
+        when (item.type) {
+            MediaType.IMAGE -> PhotoPage(item, isCurrentPage = isCurrent, onTap = toggleChrome)
+            MediaType.VIDEO -> VideoPage(item, player = player.takeIf { isCurrent }, onTap = toggleChrome)
         }
     }
 
@@ -146,32 +144,53 @@ private fun ViewerPager(
                 )
             }
             if (current != null) {
-                Row(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.4f))
-                        .navigationBarsPadding()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    ViewerAction(
-                        if (current.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        stringResource(R.string.action_favorite),
-                    ) { viewModel.toggleFavorite(current) }
-                    ViewerAction(Icons.Outlined.Share, stringResource(R.string.action_share)) { share(context, current) }
-                    ViewerAction(Icons.Outlined.AutoAwesome, stringResource(R.string.action_similar)) { onShowSimilar(current.id) }
-                    ViewerAction(
-                        if (current.isHiddenByUser) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                        stringResource(if (current.isHiddenByUser) R.string.action_unhide else R.string.action_hide),
-                    ) { viewModel.toggleHidden(current) }
-                    ViewerAction(Icons.Outlined.Delete, stringResource(R.string.action_delete)) {
-                        pendingTrash = current
-                        scope.launch { confirmTrash(viewModel.trash(current)) }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                    if (current.type == MediaType.VIDEO) VideoControls(player)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .navigationBarsPadding()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        ViewerAction(
+                            if (current.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            stringResource(R.string.action_favorite),
+                        ) { viewModel.toggleFavorite(current) }
+                        ViewerAction(Icons.Outlined.Share, stringResource(R.string.action_share)) { share(context, current) }
+                        ViewerAction(Icons.Outlined.AutoAwesome, stringResource(R.string.action_similar)) {
+                            onShowSimilar(current.id)
+                        }
+                        ViewerAction(
+                            if (current.isHiddenByUser) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                            stringResource(if (current.isHiddenByUser) R.string.action_unhide else R.string.action_hide),
+                        ) { viewModel.toggleHidden(current) }
+                        ViewerAction(Icons.Outlined.Delete, stringResource(R.string.action_delete)) {
+                            pendingTrash = current
+                            scope.launch { confirmTrash(viewModel.trash(current)) }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** Скрывает статус-бар и навигацию, пока панели просмотрщика спрятаны; возвращает их при выходе. */
+@Composable
+private fun ImmersiveMode(enabled: Boolean) {
+    val view = LocalView.current
+    val window = (view.context as? Activity)?.window ?: return
+    val controller = remember(window, view) { WindowCompat.getInsetsController(window, view) }
+    DisposableEffect(enabled) {
+        if (enabled) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) }
     }
 }
 
@@ -186,11 +205,4 @@ private fun share(context: Context, item: MediaItem) {
         .putExtra(Intent.EXTRA_STREAM, item.uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(Intent.createChooser(intent, null))
-}
-
-private fun playExternally(context: Context, item: MediaItem) {
-    val intent = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(item.uri, item.mimeType)
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    runCatching { context.startActivity(intent) }
 }

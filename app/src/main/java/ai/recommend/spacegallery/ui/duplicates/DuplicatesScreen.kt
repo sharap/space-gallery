@@ -40,7 +40,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun DuplicatesScreen(
     onBack: () -> Unit,
-    onOpen: (MediaItem) -> Unit,
+    /** Открыть элемент; очередь просмотра — его группа дубликатов. */
+    onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
     viewModel: DuplicatesViewModel = viewModel(
         factory = appViewModelFactory { c, _ -> DuplicatesViewModel(c.duplicateFinder, c.mediaRepository) },
     ),
@@ -78,7 +79,11 @@ fun DuplicatesScreen(
 }
 
 @Composable
-private fun DuplicateGroupCard(group: DuplicateGroup, onOpen: (MediaItem) -> Unit, onClean: () -> Unit) {
+private fun DuplicateGroupCard(
+    group: DuplicateGroup,
+    onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
+    onClean: () -> Unit,
+) {
     Card {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -98,7 +103,7 @@ private fun DuplicateGroupCard(group: DuplicateGroup, onOpen: (MediaItem) -> Uni
                         modifier = Modifier
                             .size(96.dp)
                             .then(if (isKeep) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
-                            .clickable { onOpen(item) },
+                            .clickable { onOpen(item, group.items) },
                     )
                 }
             }

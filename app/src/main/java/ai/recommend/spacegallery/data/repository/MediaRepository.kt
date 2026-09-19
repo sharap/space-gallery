@@ -48,6 +48,18 @@ class MediaRepository(
     fun observeAlbums(): Flow<List<Album>> =
         dao.observeAlbums().map { rows -> rows.map { it.toDomain() } }
 
+    /**
+     * Живой список в порядке [ids] (очередь просмотрщика из поиска/похожих/дубликатов):
+     * изменения избранного и скрытия приходят сразу, удалённые файлы пропадают.
+     */
+    fun observeByIds(ids: List<Long>): Flow<List<MediaItem>> {
+        val limited = ids.take(MediaDao.SQLITE_MAX_ARGS)
+        return dao.observeByIds(limited).map { rows ->
+            val byId = rows.associateBy { it.media.id }
+            limited.mapNotNull { byId[it]?.toDomain() }
+        }
+    }
+
     /** Возвращает элементы в порядке [ids]. */
     suspend fun getByIds(ids: List<Long>): List<MediaItem> {
         if (ids.isEmpty()) return emptyList()

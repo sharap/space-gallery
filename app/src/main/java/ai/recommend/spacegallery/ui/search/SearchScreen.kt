@@ -29,7 +29,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun SearchScreen(
-    onOpen: (MediaItem) -> Unit,
+    /** Открыть элемент; очередь просмотра — все результаты поиска. */
+    onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
     viewModel: SearchViewModel = viewModel(factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch) }),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -61,7 +62,8 @@ fun SearchScreen(
                 if (s.items.isEmpty()) {
                     CenteredMessage(stringResource(R.string.search_no_results))
                 } else {
-                    MediaGrid(s.items.map { it.item }, onClick = onOpen)
+                    val results = s.items.map { it.item }
+                    MediaGrid(results, onClick = { onOpen(it, results) })
                 }
         }
     }

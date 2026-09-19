@@ -19,7 +19,8 @@ import kotlin.math.roundToInt
 @Composable
 fun SimilarScreen(
     onBack: () -> Unit,
-    onOpen: (MediaItem) -> Unit,
+    /** Открыть элемент; очередь просмотра — найденные похожие. */
+    onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
     viewModel: SimilarViewModel = viewModel(
         factory = appViewModelFactory { c, handle -> SimilarViewModel(c.similarFinder, handle) },
     ),
@@ -37,7 +38,7 @@ fun SimilarScreen(
                     val scores = s.items.associate { it.item.id to it.score }
                     MediaGrid(
                         s.items.map { it.item },
-                        onClick = onOpen,
+                        onClick = { onOpen(it, s.items.map { scored -> scored.item }) },
                         modifier = modifier,
                         badge = { item -> scores[item.id]?.let { "${(it * 100).roundToInt()}%" } },
                     )
