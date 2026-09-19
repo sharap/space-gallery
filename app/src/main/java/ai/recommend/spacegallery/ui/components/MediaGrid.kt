@@ -5,6 +5,8 @@ import ai.recommend.spacegallery.data.settings.GRID_COLUMN_LEVELS
 import ai.recommend.spacegallery.data.settings.GridKind
 import ai.recommend.spacegallery.domain.MediaItem
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,7 +58,9 @@ import kotlinx.coroutines.launch
  * - [selection] != null включает мультивыбор: долгое нажатие + протягивание, тап в режиме
  *   выбора отмечает элемент, тап по заголовку — весь день/месяц.
  *
- * TODO: Paging 3 для очень больших медиатек, быстрый скроллер по датам.
+ * - Длинная сетка — быстрая прокрутка ползунком с подписью месяца.
+ *
+ * TODO: Paging 3 для очень больших медиатек.
  */
 @Composable
 fun MediaGrid(
@@ -127,64 +131,77 @@ fun MediaGrid(
             }
         )
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        state = gridState,
-        modifier = modifier.then(gestures),
-        contentPadding = contentPadding,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        sections.forEach { (sectionKey, sectionItems) ->
-            if (groupByDate) {
-                item(key = headerKey(sectionKey), span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-                    val allSelected = selection != null && sectionItems.all { it.id in selection }
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            if (byMonth) formatMonth(sectionKey) else formatDay(sectionKey),
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (selection?.isActive == true) {
-                            Icon(
-                                if (allSelected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
-                                contentDescription = null,
-                                tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(22.dp),
+    // Дата каждой позиции сетки (заголовки и фото) — подпись быстрой прокрутки.
+    val positionDates = remember(sections, groupByDate) {
+        if (!groupByDate) null else sections.flatMap { (key, section) -> listOf(key) + section.map { it.dateTaken } }.toLongArray()
+    }
+    Box(modifier) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = gridState,
+            modifier = Modifier.fillMaxSize().then(gestures),
+            contentPadding = contentPadding,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            sections.forEach { (sectionKey, sectionItems) ->
+                if (groupByDate) {
+                    item(key = headerKey(sectionKey), span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
+                        val allSelected = selection != null && sectionItems.all { it.id in selection }
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (byMonth) formatMonth(sectionKey) else formatDay(sectionKey),
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
                             )
+                            if (selection?.isActive == true) {
+                                Icon(
+                                    if (allSelected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                                    contentDescription = null,
+                                    tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
                         }
                     }
                 }
-            }
-            items(sectionItems, key = { it.id }, contentType = { "media" }) { item ->
-                val selected = selection != null && item.id in selection
-                MediaThumbnail(
-                    item = item,
-                    blurred = blurred(item),
-                    badge = badge(item),
-                    selectionMode = selection?.isActive == true,
-                    selected = selected,
-                    modifier = Modifier
-                        .animateItem()
-                        // Жесты обрабатывает сетка целиком; здесь — только семантика для доступности.
-                        .semantics {
-                            this.selected = selected
-                            onClick {
-                                if (selection?.isActive == true) selection.toggle(item.id) else onClick(item)
-                                true
-                            }
-                            if (selection != null) {
-                                onLongClick {
-                                    selection.toggle(item.id)
+                items(sectionItems, key = { it.id }, contentType = { "media" }) { item ->
+                    val selected = selection != null && item.id in selection
+                    MediaThumbnail(
+                        item = item,
+                        blurred = blurred(item),
+                        badge = badge(item),
+                        selectionMode = selection?.isActive == true,
+                        selected = selected,
+                        modifier = Modifier
+                            .animateItem()
+                            // Жесты обрабатывает сетка целиком; здесь — только семантика для доступности.
+                            .semantics {
+                                this.selected = selected
+                                onClick {
+                                    if (selection?.isActive == true) selection.toggle(item.id) else onClick(item)
                                     true
                                 }
-                            }
-                        },
-                )
+                                if (selection != null) {
+                                    onLongClick {
+                                        selection.toggle(item.id)
+                                        true
+                                    }
+                                }
+                            },
+                    )
+                }
             }
+        }
+        if (items.size >= FAST_SCROLL_MIN_ITEMS) {
+            FastScroller(
+                gridState,
+                label = { index -> positionDates?.getOrNull(index)?.let { formatMonth(monthKey(it)) } },
+                contentPadding = contentPadding,
+            )
         }
     }
 }
@@ -204,6 +221,8 @@ fun rememberGridColumns(kind: GridKind): Pair<Int, (Int) -> Unit> {
 
 private const val DEFAULT_COLUMNS = 4
 private const val MONTH_HEADERS_FROM_COLUMNS = 5
+/** Быстрая прокрутка — для сеток длиннее нескольких экранов. */
+private const val FAST_SCROLL_MIN_ITEMS = 120
 
 private fun headerKey(sectionKey: Long) = "header-$sectionKey"
 

@@ -420,6 +420,10 @@ interface FaceDao {
     @Query("UPDATE OR IGNORE media_person_tag SET personId = :target WHERE personId IN (:sources)")
     suspend fun moveTags(sources: List<Long>, target: Long)
 
+    /** Все фото человека: по лицам и ручным отметкам. */
+    @Query("SELECT mediaId FROM face WHERE personId = :personId UNION SELECT mediaId FROM media_person_tag WHERE personId = :personId")
+    suspend fun getPersonMediaIds(personId: Long): List<Long>
+
     @Query("SELECT name FROM person WHERE id = :personId")
     fun observeName(personId: Long): Flow<String?>
 

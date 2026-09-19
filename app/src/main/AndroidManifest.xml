@@ -22,6 +22,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <!-- Android 13+: без разрешения FGS работает, но уведомление с прогрессом не видно -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Только для скачивания AI-моделей; фото и данные никуда не отправляются. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Координаты съёмки в EXIF (поиск по местам); без него MediaStore их вырезает. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <!-- Сеть не запрашивается намеренно: вся обработка локальная. -->
 

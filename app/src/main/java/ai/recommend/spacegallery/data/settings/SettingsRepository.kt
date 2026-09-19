@@ -31,6 +31,8 @@ data class GallerySettings(
      * для объединения (средняя связь), см. [FACE_EPS_RANGE].
      */
     val faceEps: Float = DEFAULT_FACE_EPS,
+    /** Скачивать AI-модели только по Wi-Fi (сотни мегабайт). */
+    val modelsWifiOnly: Boolean = true,
 ) {
     fun columns(kind: GridKind): Int = when (kind) {
         GridKind.MEDIA -> gridColumns
@@ -77,6 +79,7 @@ class SettingsRepository(private val context: Context) {
                 ?: d.albumGridColumns,
             smartAlbumEps = p[SMART_EPS]?.coerceIn(SMART_ALBUM_EPS_RANGE) ?: d.smartAlbumEps,
             faceEps = p[FACE_EPS]?.coerceIn(FACE_EPS_RANGE) ?: d.faceEps,
+            modelsWifiOnly = p[MODELS_WIFI_ONLY] ?: d.modelsWifiOnly,
         )
     }
 
@@ -85,6 +88,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setHideSensitive(value: Boolean) = context.dataStore.edit { it[HIDE_SENSITIVE] = value }
     suspend fun setSensitiveThreshold(value: Float) = context.dataStore.edit { it[SENSITIVE_THRESHOLD] = value }
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
+    suspend fun setModelsWifiOnly(value: Boolean) = context.dataStore.edit { it[MODELS_WIFI_ONLY] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
     suspend fun setFaceEps(value: Float) = context.dataStore.edit { it[FACE_EPS] = value.coerceIn(FACE_EPS_RANGE) }
     suspend fun setSmartAlbumEps(value: Float) = context.dataStore.edit { it[SMART_EPS] = value.coerceIn(SMART_ALBUM_EPS_RANGE) }
@@ -118,6 +122,7 @@ class SettingsRepository(private val context: Context) {
         val SENSITIVE_THRESHOLD = floatPreferencesKey("sensitive_threshold")
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
+        val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
         val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
         val SMART_EPS = floatPreferencesKey("smart_albums_eps")

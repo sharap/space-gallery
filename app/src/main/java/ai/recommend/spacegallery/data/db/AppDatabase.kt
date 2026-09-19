@@ -18,7 +18,7 @@ import androidx.room.RoomDatabase
         PersonPairDismissalEntity::class,
         MediaPersonTagEntity::class,
     ],
-    version = 8,
+    version = 10,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: media.relativePath (для управления альбомами-папками).
@@ -35,6 +35,10 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 6, to = 7),
         // 7 -> 8: ручные отметки людей на фото без рамки лица.
         AutoMigration(from = 7, to = 8),
+        // 8 -> 9: оценка качества кадра (резкость, яркость) для очистки.
+        AutoMigration(from = 8, to = 9),
+        // 9 -> 10: геометки фото и видео (поиск по местам).
+        AutoMigration(from = 9, to = 10),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

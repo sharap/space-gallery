@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "clip_image.onnx",
+      "group": "search",
+      "size": 89117001,
+      "sha256": "583fd1110a514667812fee7d684952aaf82a99b959760c8d7dca7e0ab9839299"
+    },
+    {
+      "path": "clip_text.onnx",
+      "group": "search",
+      "size": 64504507,
+      "sha256": "73baab855d406190da9faa498cfedf65f15cf309f4cc7385b7b032e6d08e5c3a"
+    },
+    {
+      "path": "clip_tokenizer/vocab.json",
+      "group": "search",
+      "size": 862328,
+      "sha256": "5047b556ce86ccaf6aa22b3ffccfc52d391ea4accdab9c2f2407da5b742d4363"
+    },
+    {
+      "path": "clip_tokenizer/merges.txt",
+      "group": "search",
+      "size": 524619,
+      "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a"
+    },
+    {
+      "path": "clip_text_multilingual.onnx",
+      "group": "russian",
+      "size": 135510754,
+      "sha256": "9de479a262ef3dcab4abe632b59a121deb294a8b030fccc269e50bde279836cd"
+    },
+    {
+      "path": "mclip_tokenizer/vocab.txt",
+      "group": "russian",
+      "size": 995526,
+      "sha256": "fe0fda7c425b48c516fc8f160d594c8022a0808447475c1a7c6d6479763f310c"
+    },
+    {
+      "path": "nsfw_clip.onnx",
+      "group": "sensitive",
+      "size": 74797,
+      "sha256": "4524c1c838792e181fe3a2043691dfd4f5575e9bca6fda732f030910d88e4fd3"
+    },
+    {
+      "path": "nsfw.onnx",
+      "group": "sensitive",
+      "size": 88513454,
+      "sha256": "bb18e3c74ec5da07c6f82d7ea08edf7a0b04ea6a6e36f28baf2c2cfa7b3c4039"
+    },
+    {
+      "path": "face_detect.onnx",
+      "group": "faces",
+      "size": 232589,
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+    },
+    {
+      "path": "face_embed.onnx",
+      "group": "faces",
+      "size": 38688787,
+      "sha256": "ae6a6ac44d2bdc87924e75fb23d8212430dd24f037f5e035c21deff99afc8b61"
+    }
+  ]
+}

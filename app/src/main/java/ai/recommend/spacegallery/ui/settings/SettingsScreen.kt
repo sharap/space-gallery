@@ -45,6 +45,7 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenModels: () -> Unit,
     viewModel: SettingsViewModel = viewModel(
         factory = appViewModelFactory { c, _ ->
             SettingsViewModel(
@@ -52,7 +53,6 @@ fun SettingsScreen(
                 c.indexingScheduler,
                 c.database.analysisDao(),
                 c.embeddingIndex,
-                c.models,
                 c.smartAlbumBuilder,
                 c.peopleBuilder,
                 c.people,
@@ -151,17 +151,21 @@ fun SettingsScreen(
                 headlineContent = { Text(stringResource(R.string.settings_only_charging)) },
                 trailingContent = { Switch(checked = s.indexOnlyWhileCharging, onCheckedChange = viewModel::setOnlyWhileCharging) },
             )
-            viewModel.modelStatus.forEach { (model, available) ->
-                ListItem(
-                    headlineContent = { Text(model.fileName) },
-                    supportingContent = {
-                        Text(stringResource(if (available) R.string.settings_model_ok else R.string.settings_model_missing))
-                    },
-                )
-            }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.models_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_models_desc)) },
+                modifier = Modifier.clickable(onClick = onOpenModels),
+            )
             OutlinedButton(onClick = viewModel::reindex, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(stringResource(R.string.settings_reindex))
             }
+
+            HorizontalDivider()
+            SectionHeader(stringResource(R.string.settings_section_about))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_places_data)) },
+                supportingContent = { Text(stringResource(R.string.settings_places_data_desc)) },
+            )
         }
     }
 }

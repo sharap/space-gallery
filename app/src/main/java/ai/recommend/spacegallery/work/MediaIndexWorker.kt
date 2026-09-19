@@ -26,8 +26,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * Фоновая индексация по этапам:
  * 1. синхронизация с MediaStore и AI-анализ новых/изменённых файлов (CLIP, NSFW, dHash);
  * 2. умные альбомы (DBSCAN по CLIP), если накопилось достаточно изменений;
- * 3. поиск лиц (YuNet + SFace) на фото, где их ещё не искали;
- * 4. люди (DBSCAN по лицам), если нашлись новые лица.
+ * 3. геометки (EXIF, метаданные видео) — для поиска по местам;
+ *    оценка качества (резкость, яркость) — для очистки;
+ * 4. поиск лиц (YuNet + SFace) на фото, где их ещё не искали;
+ * 5. люди (средняя связь по лицам), если нашлись новые лица.
  *
  * Большие проходы выполняются как foreground service (уведомление с прогрессом): так система
  * не убивает процесс, не действует 10-минутный лимит WorkManager и доступны все ядра.
@@ -61,6 +63,24 @@ class MediaIndexWorker(
         if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = analyzed)) {
             enterPhase(IndexingPhase.GROUPING, total = 0, foreground = true) // ~3–10 с работы CPU
             rebuildSmartAlbums(c)
+        }
+        if (isStopped) return Result.retry()
+
+        try {
+            readLocations(c)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Location reading failed", e)
+        }
+        if (isStopped) return Result.retry()
+
+        try {
+            assessQuality(c)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Quality assessment failed", e) // очистка подождёт, не повод перезапускать
         }
         if (isStopped) return Result.retry()
 
@@ -155,6 +175,31 @@ class MediaIndexWorker(
             c.models.release(ModelId.CLIP_IMAGE, ModelId.NSFW, ModelId.NSFW_CLIP)
         }
         return processed
+    }
+
+    /** Геометки из EXIF и метаданных видео (для поиска по местам). */
+    private suspend fun readLocations(c: AppContainer) {
+        val total = c.locationIndexer.countPending()
+        if (total == 0) return
+        enterPhase(IndexingPhase.LOCATION, total, foreground = total >= FOREGROUND_THRESHOLD)
+        c.locationIndexer.run(isStopped = { isStopped }) { processed -> reportProgress(processed, total) }
+    }
+
+    /** Оценка резкости и яркости фото (для очистки). */
+    private suspend fun assessQuality(c: AppContainer) {
+        val total = c.qualityIndexer.countPending()
+        if (total == 0) return
+        enterPhase(IndexingPhase.QUALITY, total, foreground = total >= FOREGROUND_THRESHOLD)
+        var reportedAt = 0
+        var windowStart = SystemClock.elapsedRealtime()
+        c.qualityIndexer.run(isStopped = { isStopped }) { processed ->
+            reportProgress(processed, total)
+            if (processed - reportedAt >= PERF_REPORT_EVERY * 4) {
+                logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "quality.total")
+                reportedAt = processed
+                windowStart = SystemClock.elapsedRealtime()
+            }
+        }
     }
 
     /** Этап 3: поиск лиц. Возвращает число найденных лиц. */

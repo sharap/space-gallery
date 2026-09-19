@@ -30,6 +30,14 @@ class BitmapLoader(private val resolver: ContentResolver) {
             }.getOrNull()
         }
 
+    /**
+     * Декодирование самого файла (не системного превью): превью MediaStore бывает собрано из
+     * маленькой EXIF-миниатюры, а для оценки резкости нужен настоящий кадр.
+     */
+    suspend fun decode(uri: Uri, targetSize: Int): Bitmap? = withContext(Dispatchers.IO) {
+        runCatching { decodeImage(uri, targetSize).ensureSoftware() }.getOrNull()
+    }
+
     private fun decodeImage(uri: Uri, targetSize: Int): Bitmap =
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE

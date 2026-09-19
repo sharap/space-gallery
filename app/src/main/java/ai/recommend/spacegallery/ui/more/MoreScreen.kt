@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -24,14 +24,14 @@ import androidx.compose.ui.res.stringResource
 @Composable
 fun MoreScreen(
     onFavorites: () -> Unit,
-    onDuplicates: () -> Unit,
+    onCleanup: () -> Unit,
     onHidden: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_more)) }) }) { padding ->
         Column(Modifier.padding(padding)) {
             Entry(Icons.Outlined.FavoriteBorder, stringResource(R.string.favorites), null, onFavorites)
-            Entry(Icons.Outlined.ContentCopy, stringResource(R.string.duplicates_title), stringResource(R.string.duplicates_desc), onDuplicates)
+            Entry(Icons.Outlined.CleaningServices, stringResource(R.string.cleanup_title), stringResource(R.string.cleanup_desc), onCleanup)
             Entry(Icons.Outlined.VisibilityOff, stringResource(R.string.hidden_title), stringResource(R.string.hidden_desc), onHidden)
             Entry(Icons.Outlined.Settings, stringResource(R.string.settings_title), null, onSettings)
         }

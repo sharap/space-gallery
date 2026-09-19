@@ -72,5 +72,7 @@ object IndexingNotifications {
 fun IndexingPhase.titleRes(): Int = when (this) {
     IndexingPhase.ANALYSIS -> R.string.notification_indexing_title
     IndexingPhase.GROUPING -> R.string.indexing_phase_grouping
+    IndexingPhase.LOCATION -> R.string.indexing_phase_location
+    IndexingPhase.QUALITY -> R.string.indexing_phase_quality
     IndexingPhase.FACES -> R.string.indexing_phase_faces
 }

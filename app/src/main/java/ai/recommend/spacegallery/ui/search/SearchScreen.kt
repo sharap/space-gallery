@@ -40,7 +40,7 @@ fun SearchScreen(
     onOpenPerson: (Person) -> Unit,
     onShowAllPeople: () -> Unit,
     viewModel: SearchViewModel = viewModel(
-        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository, c.smartAlbums, c.people) },
+        factory = appViewModelFactory { c, _ -> SearchViewModel(c.filteredSearch, c.mediaRepository, c.smartAlbums, c.people, c.places) },
     ),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -67,6 +67,27 @@ fun SearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier.fillMaxWidth().padding(12.dp),
         )
+        if (!selection.isActive) {
+            val parsed by viewModel.parsed.collectAsStateWithLifecycle()
+            val filters by viewModel.filters.collectAsStateWithLifecycle()
+            val people by viewModel.peopleList.collectAsStateWithLifecycle()
+            val years by viewModel.years.collectAsStateWithLifecycle()
+            val places by viewModel.placeList.collectAsStateWithLifecycle()
+            SearchFilterBar(
+                parsed = parsed,
+                filters = filters,
+                people = people,
+                years = years,
+                places = places,
+                onPlaces = viewModel::setPlaces,
+                onIgnoreWord = viewModel::ignoreWord,
+                onPeople = viewModel::setPeople,
+                onDate = viewModel::setDate,
+                onType = viewModel::setType,
+                onFavorites = viewModel::setFavoritesOnly,
+                onClear = viewModel::clearFilters,
+            )
+        }
         when (val s = state) {
             SearchUiState.Idle -> {
                 val albums by viewModel.smartAlbumList.collectAsStateWithLifecycle()

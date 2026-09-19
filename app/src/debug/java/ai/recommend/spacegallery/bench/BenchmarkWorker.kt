@@ -78,6 +78,36 @@ class BenchmarkReceiver : BroadcastReceiver() {
             }
             return
         }
+        if (intent.getStringExtra("action") == "modeldl") {
+            // Проверка загрузчика моделей: качает всё из MODELS_BASE_URL, игнорируя встроенные копии.
+            (context.applicationContext as SpaceGalleryApp).container.modelDownloads.start(wifiOnly = false, force = true)
+            OrtBenchmark.log("=== modeldl started")
+            return
+        }
+        if (intent.getStringExtra("action") == "modeldl-cancel") {
+            (context.applicationContext as SpaceGalleryApp).container.modelDownloads.cancel()
+            OrtBenchmark.log("=== modeldl cancelled")
+            return
+        }
+        if (intent.getStringExtra("action") == "modeldl-clear") {
+            // Удалить скачанные модели (останутся встроенные в debug-APK).
+            (context.applicationContext as SpaceGalleryApp).container.modelCatalog.dir.deleteRecursively()
+            OrtBenchmark.log("=== modeldl cleared")
+            return
+        }
+        if (intent.getStringExtra("action") == "places") {
+            val request = OneTimeWorkRequestBuilder<PlacesDiagnosticsWorker>()
+                .setInputData(workDataOf("sample" to intent.getIntExtra("sample", 20)))
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            return
+        }
+        if (intent.getStringExtra("action") == "cleanup") {
+            val request = OneTimeWorkRequestBuilder<CleanupDiagnosticsWorker>().addTag(TAG_BENCH).build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            return
+        }
         if (intent.getStringExtra("action") == "faceartifact") {
             val request = OneTimeWorkRequestBuilder<FaceArtifactWorker>()
                 .setInputData(workDataOf("name" to (intent.getStringExtra("name") ?: "кружка")))
@@ -242,6 +272,30 @@ class FaceArtifactWorker(context: Context, params: WorkerParameters) : Coroutine
             FaceArtifactDiagnostics(container).run(inputData.getString("name") ?: "кружка")
         } catch (e: Exception) {
             OrtBenchmark.log("=== faceartifact FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class CleanupDiagnosticsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            CleanupDiagnostics(container).run()
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== cleanup FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class PlacesDiagnosticsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            PlacesDiagnostics(container).run(inputData.getInt("sample", 20))
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== places FAILED: $e")
         }
         return Result.success()
     }

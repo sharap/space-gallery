@@ -68,6 +68,17 @@ data class MediaAnalysisEntity(
      * При переанализе файла строка перезаписывается и поиск лиц повторяется.
      */
     @ColumnInfo(defaultValue = "0") val facesVersion: Int = 0,
+    /** Резкость самого чёткого участка кадра (дисперсия лапласиана), null — не оценивалась. */
+    val sharpness: Float? = null,
+    /** Средняя яркость 0..1. */
+    val brightness: Float? = null,
+    /** Версия оценки качества (отдельный быстрый проход, как и поиск лиц). */
+    @ColumnInfo(defaultValue = "0") val qualityVersion: Int = 0,
+    /** Координаты съёмки из EXIF/метаданных видео; null — нет геометки. */
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    /** Версия чтения геометки (0 — ещё не читали). */
+    @ColumnInfo(defaultValue = "0") val locationVersion: Int = 0,
 ) {
     override fun equals(other: Any?): Boolean =
         other is MediaAnalysisEntity && other.mediaId == mediaId &&
@@ -85,6 +96,10 @@ data class MediaWithAnalysis(
 data class EmbeddingRow(val mediaId: Long, val embedding: ByteArray)
 
 data class HashRow(val mediaId: Long, val perceptualHash: Long)
+
+data class LocationRow(val mediaId: Long, val latitude: Double, val longitude: Double)
+
+data class QualityRow(val mediaId: Long, val sharpness: Float, val brightness: Float)
 
 data class AlbumRow(
     val bucketId: Long,

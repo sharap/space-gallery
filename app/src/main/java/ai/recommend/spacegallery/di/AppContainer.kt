@@ -17,8 +17,16 @@ import ai.recommend.spacegallery.ml.text.ClipTokenizer
 import ai.recommend.spacegallery.ml.text.TextEmbedder
 import ai.recommend.spacegallery.ml.text.TextEncoderBackend
 import ai.recommend.spacegallery.ml.text.WordPieceTokenizer
-import ai.recommend.spacegallery.search.DuplicateFinder
+import ai.recommend.spacegallery.search.cleanup.CleanupFinder
+import ai.recommend.spacegallery.search.cleanup.CleanupRepository
+import ai.recommend.spacegallery.search.cleanup.QualityIndexer
+import ai.recommend.spacegallery.search.places.LocationIndexer
+import ai.recommend.spacegallery.ml.onnx.ModelCatalog
+import ai.recommend.spacegallery.work.ModelDownloads
+import ai.recommend.spacegallery.search.places.PlaceIndex
+import ai.recommend.spacegallery.search.places.PlacesRepository
 import ai.recommend.spacegallery.search.EmbeddingIndex
+import ai.recommend.spacegallery.search.FilteredSearch
 import ai.recommend.spacegallery.search.SemanticSearchEngine
 import ai.recommend.spacegallery.search.SimilarMediaFinder
 import ai.recommend.spacegallery.ml.face.FaceDetector
@@ -44,7 +52,7 @@ import kotlinx.coroutines.SupervisorJob
  */
 class AppContainer(context: Context) {
 
-    private val appContext = context.applicationContext
+    val appContext: android.content.Context = context.applicationContext
 
     /** Скоуп процесса — для кешей, которые живут дольше экранов (индекс эмбеддингов). */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -80,6 +88,7 @@ class AppContainer(context: Context) {
     val semanticSearch: SemanticSearchEngine by lazy {
         SemanticSearchEngine(textEmbedder, embeddingIndex, mediaRepository)
     }
+    val filteredSearch: FilteredSearch by lazy { FilteredSearch(semanticSearch, mediaRepository, database.faceDao(), places) }
     val similarFinder: SimilarMediaFinder by lazy { SimilarMediaFinder(embeddingIndex, mediaRepository, settings) }
     val smartAlbumBuilder: SmartAlbumBuilder by lazy {
         SmartAlbumBuilder(
@@ -101,7 +110,14 @@ class AppContainer(context: Context) {
     }
     val people: PeopleRepository by lazy { PeopleRepository(database, mediaRepository, peopleBuilder, appScope) }
     val smartAlbums: SmartAlbumRepository by lazy { SmartAlbumRepository(database.smartAlbumDao(), mediaRepository) }
-    val duplicateFinder: DuplicateFinder by lazy { DuplicateFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
+    val modelCatalog: ModelCatalog by lazy { ModelCatalog(appContext) }
+    val modelDownloads: ModelDownloads by lazy { ModelDownloads(appContext, modelCatalog) }
+    val locationIndexer: LocationIndexer by lazy { LocationIndexer(appContext, database) }
+    val placeIndex: PlaceIndex by lazy { PlaceIndex(appContext.assets) }
+    val places: PlacesRepository by lazy { PlacesRepository(database.analysisDao(), placeIndex, mediaRepository) }
+    val qualityIndexer: QualityIndexer by lazy { QualityIndexer(database, bitmapLoader) }
+    val cleanupFinder: CleanupFinder by lazy { CleanupFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
+    val cleanup: CleanupRepository by lazy { CleanupRepository(cleanupFinder, mediaRepository, appScope) }
 
     // --- background ---
     val mediaAnalyzer: MediaAnalyzer by lazy {

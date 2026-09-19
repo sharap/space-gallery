@@ -7,6 +7,22 @@
 Приложение запускается и без моделей — соответствующие функции просто отключаются
 (дубликаты по dHash работают всегда, без нейросети).
 
+## Загрузка моделей в релизе
+
+1. `./models/install_models.sh` — модели из зеркала в debug-assets;
+2. `python3 models/build_manifest.py` — `app/src/main/assets/models_manifest.json` (пути, размеры, SHA-256);
+3. выложить файлы из `app/src/debug/assets/models/` на HTTPS-сервер под теми же путями;
+4. собрать релиз с адресом: `./gradlew assembleRelease -PmodelsBaseUrl=https://…/models/v1/`.
+
+Приложение (экран «Настройки → AI-модели», плашка в ленте) качает недостающие файлы через
+WorkManager: докачка после обрыва (HTTP Range), проверка SHA-256, «только по Wi-Fi» по умолчанию.
+Скачанный файл помечается `<файл>.sha256`; если хэш в манифесте поменялся — файл скачается заново.
+
+Проверка на устройстве (debug): локальный сервер с поддержкой Range + `adb reverse tcp:8765 tcp:8765`,
+сборка с `-PmodelsBaseUrl=http://127.0.0.1:8765/`, затем
+`adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action modeldl`
+(`modeldl-cancel`, `modeldl-clear` — прервать и удалить скачанное).
+
 ## Быстрая установка из локального зеркала
 
 ```bash

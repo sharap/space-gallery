@@ -68,7 +68,7 @@ fun MediaPermissionGate(
     LaunchedEffect(granted) { if (granted) onGranted() }
 
     if (granted) {
-        RequestNotificationPermissionOnce()
+        RequestExtraPermissionsOnce(onLocationGranted = onGranted)
         content()
     } else {
         Column(
@@ -86,21 +86,27 @@ fun MediaPermissionGate(
 }
 
 /**
- * Android 13+: один раз просит разрешение на уведомления — в них показывается прогресс
- * AI-анализа (foreground service). Отказ ни на что не влияет, кроме видимости прогресса.
+ * Один раз просит необязательные разрешения:
+ * - уведомления (Android 13+) — в них прогресс AI-анализа; отказ влияет только на видимость;
+ * - геометки в медиафайлах (Android 10+) — без него MediaStore вырезает координаты из EXIF,
+ *   и поиск по местам не работает. После выдачи [onLocationGranted] запускает их чтение.
  */
 @Composable
-fun RequestNotificationPermissionOnce() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+fun RequestExtraPermissionsOnce(onLocationGranted: () -> Unit) {
     val context = LocalContext.current
     var asked by rememberSaveable { mutableStateOf(false) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result[Manifest.permission.ACCESS_MEDIA_LOCATION] == true) onLocationGranted()
+    }
     LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        if (!granted && !asked) {
+        val wanted = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        }
+        val missing = wanted.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty() && !asked) {
             asked = true
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            launcher.launch(missing.toTypedArray())
         }
     }
 }

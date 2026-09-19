@@ -4,7 +4,9 @@ import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.ui.albums.AlbumDetailScreen
 import ai.recommend.spacegallery.ui.albums.AlbumsScreen
-import ai.recommend.spacegallery.ui.duplicates.DuplicatesScreen
+import ai.recommend.spacegallery.ui.cleanup.CleanupCategoryScreen
+import ai.recommend.spacegallery.ui.cleanup.CleanupScreen
+import androidx.navigation.toRoute
 import ai.recommend.spacegallery.ui.gallery.FavoritesScreen
 import ai.recommend.spacegallery.ui.gallery.GalleryScreen
 import ai.recommend.spacegallery.ui.hidden.HiddenScreen
@@ -14,6 +16,7 @@ import ai.recommend.spacegallery.ui.people.PersonScreen
 import ai.recommend.spacegallery.ui.search.SearchScreen
 import ai.recommend.spacegallery.ui.search.SmartAlbumScreen
 import ai.recommend.spacegallery.ui.settings.SettingsScreen
+import ai.recommend.spacegallery.ui.models.ModelsScreen
 import ai.recommend.spacegallery.ui.similar.SimilarScreen
 import ai.recommend.spacegallery.ui.viewer.ViewerScreen
 import androidx.annotation.StringRes
@@ -93,7 +96,7 @@ fun SpaceGalleryNavHost() {
                 navController.navigate(ViewerRoute(item.id, ViewerQueue.LIST, ids = queue.map { it.id }))
 
             composable<GalleryRoute> {
-                GalleryScreen(onOpen = { openViewer(it, ViewerQueue.TIMELINE) })
+                GalleryScreen(onOpen = { openViewer(it, ViewerQueue.TIMELINE) }, onOpenModels = { navController.navigate(ModelsRoute) })
             }
             composable<AlbumsRoute> {
                 AlbumsScreen(onOpenAlbum = { navController.navigate(AlbumRoute(it.id, it.name)) })
@@ -130,7 +133,7 @@ fun SpaceGalleryNavHost() {
             composable<MoreRoute> {
                 MoreScreen(
                     onFavorites = { navController.navigate(FavoritesRoute) },
-                    onDuplicates = { navController.navigate(DuplicatesRoute) },
+                    onCleanup = { navController.navigate(CleanupRoute) },
                     onHidden = { navController.navigate(HiddenRoute) },
                     onSettings = { navController.navigate(SettingsRoute) },
                 )
@@ -148,14 +151,20 @@ fun SpaceGalleryNavHost() {
             composable<FavoritesRoute> {
                 FavoritesScreen(onBack = navController::popBackStack, onOpen = { openViewer(it, ViewerQueue.FAVORITES) })
             }
-            composable<DuplicatesRoute> {
-                DuplicatesScreen(onBack = navController::popBackStack, onOpen = ::openViewerList)
+            composable<CleanupRoute> {
+                CleanupScreen(onBack = navController::popBackStack, onOpenCategory = { navController.navigate(CleanupCategoryRoute(it)) })
+            }
+            composable<CleanupCategoryRoute> { entry ->
+                CleanupCategoryScreen(entry.toRoute<CleanupCategoryRoute>().category, onBack = navController::popBackStack, onOpen = ::openViewerList)
             }
             composable<HiddenRoute> {
                 HiddenScreen(onBack = navController::popBackStack, onOpen = { openViewer(it, ViewerQueue.HIDDEN) })
             }
             composable<SettingsRoute> {
-                SettingsScreen(onBack = navController::popBackStack)
+                SettingsScreen(onBack = navController::popBackStack, onOpenModels = { navController.navigate(ModelsRoute) })
+            }
+            composable<ModelsRoute> {
+                ModelsScreen(onBack = navController::popBackStack)
             }
         }
     }

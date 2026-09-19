@@ -45,7 +45,13 @@ import kotlinx.serialization.Serializable
 @Serializable data class SmartAlbumRoute(val albumId: Long, val name: String)
 @Serializable data object PeopleRoute
 @Serializable data class PersonRoute(val personId: Long)
-@Serializable data object DuplicatesRoute
+@Serializable data object CleanupRoute
+
+@Keep
+@Serializable enum class CleanupCategory { COPIES, SERIES, POOR, SCREENSHOTS, LARGE_VIDEOS }
+
+@Serializable data class CleanupCategoryRoute(val category: CleanupCategory)
 @Serializable data object FavoritesRoute
 @Serializable data object HiddenRoute
 @Serializable data object SettingsRoute
+@Serializable data object ModelsRoute

@@ -20,6 +20,12 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // Откуда релиз скачивает модели (файлы под путями из assets/models_manifest.json).
+        // Задаётся при сборке: -PmodelsBaseUrl=https://…/ или в gradle.properties. Пусто —
+        // загрузка недоступна (debug-сборка берёт модели из своих assets).
+        val modelsBaseUrl = (project.findProperty("modelsBaseUrl") as String?).orEmpty()
+        buildConfigField("String", "MODELS_BASE_URL", "\"$modelsBaseUrl\"")
+
         ndk {
             // libonnxruntime.so ~30–40 МБ на каждую ABI: оставляем телефоны + эмулятор.
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -39,6 +45,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     androidResources {
         // ONNX-модели читаются из assets через mmap/стрим — не сжимаем их в APK.

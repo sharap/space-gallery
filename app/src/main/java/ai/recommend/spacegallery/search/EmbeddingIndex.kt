@@ -42,6 +42,8 @@ class EmbeddingIndex(private val dao: AnalysisDao) {
         limit: Int,
         minScore: Float = Float.NEGATIVE_INFINITY,
         exclude: Set<Long> = emptySet(),
+        /** Искать только среди этих id (фильтры поиска); null — везде. */
+        include: Set<Long>? = null,
     ): List<Pair<Long, Float>> {
         val s = load()
         if (s.ids.isEmpty() || query.size != s.dim) return emptyList()
@@ -49,7 +51,7 @@ class EmbeddingIndex(private val dao: AnalysisDao) {
             val heap = PriorityQueue<Pair<Long, Float>>(limit + 1, compareBy { it.second })
             for (row in s.ids.indices) {
                 val id = s.ids[row]
-                if (id in exclude) continue
+                if (id in exclude || (include != null && id !in include)) continue
                 val score = VectorMath.dot(query, s.matrix, row * s.dim)
                 if (score < minScore) continue
                 if (heap.size < limit) {

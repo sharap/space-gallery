@@ -26,15 +26,24 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ListItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryScreen(
     onOpen: (MediaItem) -> Unit,
+    onOpenModels: () -> Unit,
     viewModel: GalleryViewModel = viewModel(
-        factory = appViewModelFactory { c, _ -> GalleryViewModel(c.mediaRepository, c.indexingScheduler) },
+        factory = appViewModelFactory { c, _ ->
+            GalleryViewModel(c.mediaRepository, c.indexingScheduler, downloads = c.modelDownloads, catalog = c.modelCatalog)
+        },
     ),
 ) {
+    val modelsNeeded by viewModel.modelsNeeded.collectAsStateWithLifecycle()
     val items by viewModel.items.collectAsStateWithLifecycle()
     val indexing by viewModel.indexing.collectAsStateWithLifecycle()
     val selection = rememberSelectionState()
@@ -47,6 +56,15 @@ fun GalleryScreen(
                 Column {
                     TopAppBar(title = { Text(stringResource(R.string.tab_photos)) })
                     IndexingBanner(indexing)
+                    if (modelsNeeded) {
+                        ListItem(
+                            leadingContent = { Icon(Icons.Outlined.CloudDownload, contentDescription = null) },
+                            headlineContent = { Text(stringResource(R.string.models_banner)) },
+                            trailingContent = {
+                                TextButton(onClick = onOpenModels) { Text(stringResource(R.string.models_banner_action)) }
+                            },
+                        )
+                    }
                 }
             }
         },

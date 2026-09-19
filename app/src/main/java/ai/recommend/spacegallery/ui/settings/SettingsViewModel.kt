@@ -3,8 +3,6 @@ package ai.recommend.spacegallery.ui.settings
 import ai.recommend.spacegallery.data.db.AnalysisDao
 import ai.recommend.spacegallery.data.settings.GallerySettings
 import ai.recommend.spacegallery.data.settings.SettingsRepository
-import ai.recommend.spacegallery.ml.onnx.ModelId
-import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.people.PeopleBuilder
 import ai.recommend.spacegallery.search.people.PeopleRepository
@@ -23,7 +21,6 @@ class SettingsViewModel(
     private val scheduler: IndexingScheduler,
     private val analysisDao: AnalysisDao,
     private val index: EmbeddingIndex,
-    models: ModelProvider,
     private val smartAlbums: SmartAlbumBuilder,
     private val people: PeopleBuilder,
     private val peopleRepository: PeopleRepository,
@@ -59,7 +56,6 @@ class SettingsViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GallerySettings())
 
     /** Какие ONNX-модели найдены на устройстве. */
-    val modelStatus: Map<ModelId, Boolean> = ModelId.entries.associateWith { models.isAvailable(it) }
 
     fun setHideSensitive(v: Boolean) = viewModelScope.launch { settings.setHideSensitive(v) }
     fun setSensitiveThreshold(v: Float) = viewModelScope.launch { settings.setSensitiveThreshold(v) }

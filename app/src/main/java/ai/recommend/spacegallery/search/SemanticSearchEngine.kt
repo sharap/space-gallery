@@ -20,14 +20,15 @@ class SemanticSearchEngine(
     private val index: EmbeddingIndex,
     private val repository: MediaRepository,
 ) {
-    suspend fun search(query: String, limit: Int = 200): SearchOutcome {
+    /** [include] — искать только среди этих медиа (фильтры); null — по всей медиатеке. */
+    suspend fun search(query: String, limit: Int = 200, include: Set<Long>? = null): SearchOutcome {
         if (!textEmbedder.isAvailable) return SearchOutcome.ModelUnavailable
         if (index.size() == 0) return SearchOutcome.IndexNotReady
         val q = textEmbedder.embed(query) ?: return SearchOutcome.ModelUnavailable
 
         // Косинус текст↔картинка у CLIP невелик (~0.2–0.35), поэтому важен ранжированный порядок,
         // а порог — лишь отсечка явного шума.
-        val hits = index.search(q, limit, minScore = MIN_TEXT_IMAGE_SCORE)
+        val hits = index.search(q, limit, minScore = MIN_TEXT_IMAGE_SCORE, include = include)
         val scores = hits.toMap()
         val items = repository.getVisibleByIds(hits.map { it.first })
         return SearchOutcome.Results(items.map { ScoredMedia(it, scores.getValue(it.id)) })
