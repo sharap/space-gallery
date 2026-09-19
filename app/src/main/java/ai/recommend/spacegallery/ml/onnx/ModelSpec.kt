@@ -28,6 +28,15 @@ enum class ModelId(val fileName: String) {
      * clip_embeds [1,512] -> nsfw_prob [1,1]. Используется как префильтр перед [NSFW].
      */
     NSFW_CLIP("nsfw_clip.onnx"),
+
+    /**
+     * Детектор лиц YuNet (OpenCV Zoo, MIT): input [1,3,640,640] BGR 0..255 ->
+     * cls/obj/bbox/kps для шагов 8/16/32 (рамка + 5 ключевых точек).
+     */
+    FACE_DETECT("face_detect.onnx"),
+
+    /** Распознавание лиц SFace (OpenCV Zoo, Apache 2.0): data [1,3,112,112] RGB 0..255 -> fc1 [1,128]. */
+    FACE_EMBED("face_embed.onnx"),
 }
 
 data class ImageInputSpec(

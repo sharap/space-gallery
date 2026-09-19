@@ -31,7 +31,13 @@ import androidx.compose.ui.unit.dp
  * Та же плитка, что у обычных альбомов, и тот же масштаб сетки альбомов (щипок).
  */
 @Composable
-fun SmartAlbumGrid(albums: List<SmartAlbum>, onOpen: (SmartAlbum) -> Unit, modifier: Modifier = Modifier) {
+fun SmartAlbumGrid(
+    albums: List<SmartAlbum>,
+    onOpen: (SmartAlbum) -> Unit,
+    modifier: Modifier = Modifier,
+    /** Блок над альбомами на всю ширину (ряд «Люди»). */
+    header: @Composable () -> Unit = {},
+) {
     val (columns, setColumns) = rememberGridColumns(GridKind.ALBUMS)
     val currentColumns by rememberUpdatedState(columns)
     val haptics = LocalHapticFeedback.current
@@ -48,7 +54,8 @@ fun SmartAlbumGrid(albums: List<SmartAlbum>, onOpen: (SmartAlbum) -> Unit, modif
             },
         ),
     ) {
-        item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+        item(key = "people", span = { GridItemSpan(maxLineSpan) }) { header() }
+        if (albums.isNotEmpty()) item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(stringResource(R.string.smart_albums_title), style = MaterialTheme.typography.titleMedium)
                 Text(

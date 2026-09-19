@@ -28,6 +28,9 @@ import kotlinx.serialization.Serializable
 
     /** Умный альбом [ViewerRoute.albumId] (может быть больше лимита явного списка). */
     SMART_ALBUM,
+
+    /** Фото человека [ViewerRoute.albumId] (id человека). */
+    PERSON,
 }
 
 /** Просмотрщик: открывается на [mediaId] и листает очередь [queue]. */
@@ -40,6 +43,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable data class SimilarRoute(val mediaId: Long)
 @Serializable data class SmartAlbumRoute(val albumId: Long, val name: String)
+@Serializable data object PeopleRoute
+@Serializable data class PersonRoute(val personId: Long)
 @Serializable data object DuplicatesRoute
 @Serializable data object FavoritesRoute
 @Serializable data object HiddenRoute

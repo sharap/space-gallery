@@ -20,6 +20,8 @@ CLIP="$SRC/clip-vit-base-patch32"
 MCLIP="$SRC/clip-ViT-B-32-multilingual-v1-ONNX"
 NSFW="$SRC/vit-base-nsfw-detector-ONNX"
 NSFW_CLIP="$SRC/clip-based-nsfw-detector-b32-ONNX"
+YUNET="$SRC/face_detection_yunet"
+SFACE="$SRC/face_recognition_sface"
 
 # У многоязычного энкодера есть только fp32 и quantized — для прочих вариантов берём quantized.
 MCLIP_MODEL="$MCLIP/onnx/model$SUFFIX.onnx"
@@ -33,5 +35,7 @@ cp -v "$MCLIP_MODEL"                       "$DST/clip_text_multilingual.onnx"
 cp -v "$MCLIP/vocab.txt"                    "$DST/mclip_tokenizer/"
 cp -v "$NSFW/onnx/model$SUFFIX.onnx"        "$DST/nsfw.onnx"
 cp -v "$NSFW_CLIP/onnx/model.onnx"          "$DST/nsfw_clip.onnx"   # 75 КБ, есть только fp32
+cp -v "$YUNET/onnx/face_detection_yunet_2023mar.onnx" "$DST/face_detect.onnx"  # 230 КБ
+cp -v "$SFACE/onnx/model.onnx"              "$DST/face_embed.onnx"  # 39 МБ fp32 (очищенный граф)
 
 du -sh "$DST"

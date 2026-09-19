@@ -1,6 +1,9 @@
 package ai.recommend.spacegallery.work
 
 import ai.recommend.spacegallery.SpaceGalleryApp
+import ai.recommend.spacegallery.data.db.MediaAnalysisEntity
+import ai.recommend.spacegallery.di.AppContainer
+import ai.recommend.spacegallery.domain.IndexingPhase
 import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.OnnxRuntimeHolder
 import ai.recommend.spacegallery.perf.PerfStats
@@ -8,7 +11,6 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
-import ai.recommend.spacegallery.data.db.MediaAnalysisEntity
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
@@ -21,11 +23,15 @@ import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Фоновая индексация: синхронизация с MediaStore и AI-анализ новых/изменённых файлов.
+ * Фоновая индексация по этапам:
+ * 1. синхронизация с MediaStore и AI-анализ новых/изменённых файлов (CLIP, NSFW, dHash);
+ * 2. умные альбомы (DBSCAN по CLIP), если накопилось достаточно изменений;
+ * 3. поиск лиц (YuNet + SFace) на фото, где их ещё не искали;
+ * 4. люди (DBSCAN по лицам), если нашлись новые лица.
  *
- * Большие проходы выполняются как foreground service (уведомление с прогрессом):
- * так система не убивает процесс и не действует 10-минутный лимит WorkManager.
- * Прогресс сохраняется в БД после каждого батча, поэтому прерывание безопасно.
+ * Большие проходы выполняются как foreground service (уведомление с прогрессом): так система
+ * не убивает процесс, не действует 10-минутный лимит WorkManager и доступны все ядра.
+ * Результаты сохраняются в БД пачками, поэтому прерывание безопасно.
  */
 class MediaIndexWorker(
     context: Context,
@@ -35,28 +41,58 @@ class MediaIndexWorker(
     /** Удалось ли перевести воркер в foreground (на Android 12+ может быть запрещено из фона). */
     private var isForeground = false
     private var lastNotificationAt = 0L
+    private var phase = IndexingPhase.ANALYSIS
 
     override suspend fun doWork(): Result {
         val c = (applicationContext as SpaceGalleryApp).container
-        val analysisDao = c.database.analysisDao()
-
         PerfStats.measure("sync.mediastore") { c.mediaRepository.syncWithMediaStore() }
 
+        val analyzed = try {
+            analyzeMedia(c)
+        } catch (e: CancellationException) {
+            throw e // остановка воркера — не ошибка
+        } catch (e: Exception) {
+            Log.e(TAG, "Indexing failed", e)
+            return Result.retry()
+        }
+        if (isStopped) return Result.retry()
+
+        // Пока воркер в foreground и доступны все ядра — производные данные.
+        if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = analyzed)) {
+            enterPhase(IndexingPhase.GROUPING, total = 0, foreground = true) // ~3–10 с работы CPU
+            rebuildSmartAlbums(c)
+        }
+        if (isStopped) return Result.retry()
+
+        if (c.faceIndexer.isAvailable) {
+            val facesFound = try {
+                indexFaces(c)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Face indexing failed", e)
+                return Result.retry()
+            }
+            if (isStopped) return Result.retry()
+            if (facesFound > 0 || c.peopleBuilder.needsRebuild()) {
+                // Лиц — тысячи, векторы короткие: доли секунды, уведомление не нужно.
+                enterPhase(IndexingPhase.GROUPING, total = 0, foreground = false)
+                rebuildPeople(c)
+            }
+        }
+        return if (isStopped) Result.retry() else Result.success()
+    }
+
+    /** Этап 1: CLIP/NSFW/dHash. Возвращает число проанализированных файлов. */
+    private suspend fun analyzeMedia(c: AppContainer): Int {
+        val analysisDao = c.database.analysisDao()
         val total = analysisDao.countPending(
             MediaAnalyzer.PIPELINE_VERSION,
             c.imageEmbedder.isAvailable,
             c.sensitiveClassifier.isAvailable,
         )
-        if (total == 0) {
-            // Первый расчёт умных альбомов на уже проиндексированной медиатеке — тоже в foreground,
-            // иначе процесс в фоне получает только энергоэффективные ядра.
-            if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = 0)) {
-                tryStartForeground(0, 0)
-                rebuildSmartAlbums()
-            }
-            return Result.success()
-        }
-
+        if (total == 0) return 0
+        phase = IndexingPhase.ANALYSIS
         // Пара новых фото обрабатывается за секунды — не показываем ради них уведомление.
         if (total >= FOREGROUND_THRESHOLD) tryStartForeground(0, total)
 
@@ -100,7 +136,7 @@ class MediaIndexWorker(
                     results.clear()
                     reportProgress(processed, total)
                     if (processed - reportedAt >= PERF_REPORT_EVERY) {
-                        logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total)
+                        logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, MediaAnalyzer.STAGE_TOTAL)
                         reportedAt = processed
                         windowStart = SystemClock.elapsedRealtime()
                     }
@@ -113,23 +149,37 @@ class MediaIndexWorker(
                 flush()
                 producer.cancel()
             }
-        } catch (e: CancellationException) {
-            throw e // остановка воркера — не ошибка
-        } catch (e: Exception) {
-            Log.e(TAG, "Indexing failed", e)
-            return Result.retry()
-            // Пока воркер в foreground и доступны все ядра — пересчитать умные альбомы.
-            if (!isStopped && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = processed)) rebuildSmartAlbums()
         } finally {
             if (processed > 0) c.embeddingIndex.invalidate()
             // Модели занимают сотни МБ нативной памяти — освобождаем после прохода.
             c.models.release(ModelId.CLIP_IMAGE, ModelId.NSFW, ModelId.NSFW_CLIP)
         }
-        return if (isStopped) Result.retry() else Result.success()
+        return processed
     }
 
-    private suspend fun rebuildSmartAlbums() {
-        val c = (applicationContext as SpaceGalleryApp).container
+    /** Этап 3: поиск лиц. Возвращает число найденных лиц. */
+    private suspend fun indexFaces(c: AppContainer): Int {
+        val total = c.faceIndexer.countPending()
+        if (total == 0) return 0
+        enterPhase(IndexingPhase.FACES, total, foreground = total >= FOREGROUND_THRESHOLD)
+        var reportedAt = 0
+        var windowStart = SystemClock.elapsedRealtime()
+        try {
+            val (_, found) = c.faceIndexer.run(isStopped = { isStopped }) { processed ->
+                reportProgress(processed, total)
+                if (processed - reportedAt >= PERF_REPORT_EVERY) {
+                    logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.total")
+                    reportedAt = processed
+                    windowStart = SystemClock.elapsedRealtime()
+                }
+            }
+            return found
+        } finally {
+            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED)
+        }
+    }
+
+    private suspend fun rebuildSmartAlbums(c: AppContainer) {
         try {
             PerfStats.measure("smart.total") { c.smartAlbumBuilder.rebuild() }
             Log.i(PERF_TAG, "smart albums:\n" + PerfStats.reportAndReset("smart.total"))
@@ -142,13 +192,31 @@ class MediaIndexWorker(
         }
     }
 
+    private suspend fun rebuildPeople(c: AppContainer) {
+        try {
+            c.peopleBuilder.rebuild()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "People clustering failed", e)
+        }
+    }
+
+    /** Новый этап: подпись в уведомлении/ленте; тяжёлые этапы — в foreground. */
+    private suspend fun enterPhase(newPhase: IndexingPhase, total: Int, foreground: Boolean) {
+        phase = newPhase
+        lastNotificationAt = 0L
+        if (foreground && !isForeground) tryStartForeground(0, total)
+        reportProgress(0, total)
+    }
+
     /** Используется WorkManager, если воркер запущен как expedited на Android < 12. */
     override suspend fun getForegroundInfo(): ForegroundInfo =
-        IndexingNotifications.foregroundInfo(applicationContext, id, 0, 0)
+        IndexingNotifications.foregroundInfo(applicationContext, id, phase, 0, 0)
 
     private suspend fun tryStartForeground(processed: Int, total: Int) {
         try {
-            setForeground(IndexingNotifications.foregroundInfo(applicationContext, id, processed, total))
+            setForeground(IndexingNotifications.foregroundInfo(applicationContext, id, phase, processed, total))
             isForeground = true
         } catch (e: IllegalStateException) {
             // ForegroundServiceStartNotAllowedException (Android 12+, запуск из фона) или
@@ -159,19 +227,19 @@ class MediaIndexWorker(
     }
 
     /** Сводка по этапам за окно из [items] файлов — `adb logcat -s IndexPerf`. */
-    private fun logPerf(items: Int, wallMs: Long, processed: Int, total: Int) {
+    private fun logPerf(items: Int, wallMs: Long, processed: Int, total: Int, totalStage: String) {
         val state = ActivityManager.RunningAppProcessInfo().also { ActivityManager.getMyMemoryState(it) }
         val header = String.format(
             Locale.ROOT,
-            "%d/%d: %d files in %.1fs = %.0f ms/file | importance=%d fgService=%b ortThreads=%d cpus=%d",
-            processed, total, items, wallMs / 1000.0, wallMs.toDouble() / items,
+            "%s %d/%d: %d files in %.1fs = %.0f ms/file | importance=%d fgService=%b ortThreads=%d cpus=%d",
+            phase, processed, total, items, wallMs / 1000.0, wallMs.toDouble() / items,
             state.importance, isForeground, OnnxRuntimeHolder.intraOpThreads, Runtime.getRuntime().availableProcessors(),
         )
-        Log.i(PERF_TAG, header + "\n" + PerfStats.reportAndReset(MediaAnalyzer.STAGE_TOTAL))
+        Log.i(PERF_TAG, header + "\n" + PerfStats.reportAndReset(totalStage))
     }
 
     private suspend fun reportProgress(processed: Int, total: Int) {
-        setProgress(workDataOf(KEY_PROCESSED to processed, KEY_TOTAL to total))
+        setProgress(workDataOf(KEY_PROCESSED to processed, KEY_TOTAL to total, KEY_PHASE to phase.name))
         val now = SystemClock.elapsedRealtime()
         if (isForeground && now - lastNotificationAt >= NOTIFICATION_THROTTLE_MS) {
             lastNotificationAt = now
@@ -192,5 +260,6 @@ class MediaIndexWorker(
         private const val PERF_REPORT_EVERY = 64
         const val KEY_PROCESSED = "processed"
         const val KEY_TOTAL = "total"
+        const val KEY_PHASE = "phase"
     }
 }

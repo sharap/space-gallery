@@ -71,6 +71,22 @@ class BenchmarkReceiver : BroadcastReceiver() {
             }
             return
         }
+        if (intent.getStringExtra("action") == "people") {
+            val pending = goAsync()
+            val container = (context.applicationContext as SpaceGalleryApp).container
+            container.appScope.launch {
+                val start = android.os.SystemClock.elapsedRealtime()
+                try {
+                    container.peopleBuilder.rebuild()
+                    OrtBenchmark.log("=== people rebuilt in ${android.os.SystemClock.elapsedRealtime() - start} ms")
+                } catch (e: Exception) {
+                    OrtBenchmark.log("=== people FAILED: $e")
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
         if (intent.getStringExtra("action") == "reindex") {
             val pending = goAsync()
             val container = (context.applicationContext as SpaceGalleryApp).container

@@ -7,6 +7,7 @@ import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
+import ai.recommend.spacegallery.work.titleRes
 import ai.recommend.spacegallery.ui.components.SelectionTopBar
 import ai.recommend.spacegallery.ui.components.rememberSelectionState
 import androidx.compose.foundation.layout.Column
@@ -100,7 +101,11 @@ private fun IndexingBanner(progress: IndexingProgress) {
     if (!progress.isRunning) return
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Text(
-            stringResource(R.string.indexing_progress, progress.processed, progress.total),
+            if (progress.total > 0) {
+                stringResource(R.string.indexing_progress_phase, stringResource(progress.phase.titleRes()), progress.processed, progress.total)
+            } else {
+                stringResource(progress.phase.titleRes())
+            },
             style = MaterialTheme.typography.labelMedium,
         )
         if (progress.total > 0) {

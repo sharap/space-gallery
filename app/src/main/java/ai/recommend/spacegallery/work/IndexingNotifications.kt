@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
+import ai.recommend.spacegallery.domain.IndexingPhase
 import java.util.UUID
 
 /** Уведомление foreground-сервиса индексации: прогресс + кнопка «Остановить». */
@@ -29,7 +30,7 @@ object IndexingNotifications {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    fun foregroundInfo(context: Context, workId: UUID, processed: Int, total: Int): ForegroundInfo {
+    fun foregroundInfo(context: Context, workId: UUID, phase: IndexingPhase, processed: Int, total: Int): ForegroundInfo {
         val openApp = PendingIntent.getActivity(
             context,
             0,
@@ -38,7 +39,7 @@ object IndexingNotifications {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_indexing)
-            .setContentTitle(context.getString(R.string.notification_indexing_title))
+            .setContentTitle(context.getString(phase.titleRes()))
             .setContentText(
                 if (total > 0) context.getString(R.string.notification_indexing_progress, processed, total) else null
             )
@@ -65,4 +66,11 @@ object IndexingNotifications {
             else -> ForegroundInfo(NOTIFICATION_ID, notification)
         }
     }
+}
+
+/** Подпись этапа индексации — в уведомлении и в ленте. */
+fun IndexingPhase.titleRes(): Int = when (this) {
+    IndexingPhase.ANALYSIS -> R.string.notification_indexing_title
+    IndexingPhase.GROUPING -> R.string.indexing_phase_grouping
+    IndexingPhase.FACES -> R.string.indexing_phase_faces
 }

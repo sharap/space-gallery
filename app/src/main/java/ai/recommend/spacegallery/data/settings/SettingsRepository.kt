@@ -26,6 +26,11 @@ data class GallerySettings(
     val albumGridColumns: Int = 4,
     /** Радиус DBSCAN для умных альбомов (косинусное расстояние), см. [SMART_ALBUM_EPS_RANGE]. */
     val smartAlbumEps: Float = DEFAULT_SMART_ALBUM_EPS,
+    /**
+     * Радиус группировки лиц в людей: 1 − минимальное **среднее** сходство лиц двух групп
+     * для объединения (средняя связь), см. [FACE_EPS_RANGE].
+     */
+    val faceEps: Float = DEFAULT_FACE_EPS,
 ) {
     fun columns(kind: GridKind): Int = when (kind) {
         GridKind.MEDIA -> gridColumns
@@ -40,6 +45,13 @@ const val DEFAULT_SMART_ALBUM_EPS = 0.14f
  * медиатеки в один кластер (проверено на реальных CLIP-эмбеддингах).
  */
 val SMART_ALBUM_EPS_RANGE = 0.08f..0.20f
+
+/**
+ * Лица SFace, средняя связь: объединять группы при среднем сходстве ≥ 0.35 (радиус 0.65) —
+ * около порога SFace «тот же человек» (0.363). Подобрано на реальной медиатеке.
+ */
+const val DEFAULT_FACE_EPS = 0.65f
+val FACE_EPS_RANGE = 0.50f..0.75f
 
 /** Какая сетка: у фото и у альбомов масштаб независимый. */
 enum class GridKind { MEDIA, ALBUMS }
@@ -64,6 +76,7 @@ class SettingsRepository(private val context: Context) {
                 ?: p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS }
                 ?: d.albumGridColumns,
             smartAlbumEps = p[SMART_EPS]?.coerceIn(SMART_ALBUM_EPS_RANGE) ?: d.smartAlbumEps,
+            faceEps = p[FACE_EPS]?.coerceIn(FACE_EPS_RANGE) ?: d.faceEps,
         )
     }
 
@@ -73,6 +86,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSensitiveThreshold(value: Float) = context.dataStore.edit { it[SENSITIVE_THRESHOLD] = value }
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
+    suspend fun setFaceEps(value: Float) = context.dataStore.edit { it[FACE_EPS] = value.coerceIn(FACE_EPS_RANGE) }
     suspend fun setSmartAlbumEps(value: Float) = context.dataStore.edit { it[SMART_EPS] = value.coerceIn(SMART_ALBUM_EPS_RANGE) }
     suspend fun setGridColumns(kind: GridKind, value: Int) = context.dataStore.edit {
         it[if (kind == GridKind.MEDIA) GRID_COLUMNS else ALBUM_GRID_COLUMNS] = value
@@ -89,6 +103,11 @@ class SettingsRepository(private val context: Context) {
         it[SMART_PENDING] = (it[SMART_PENDING] ?: 0) + count
     }
 
+    /** Версия алгоритма, которым последний раз группировали людей (0 — ещё не группировали). */
+    suspend fun peopleAlgorithmVersion(): Int = context.dataStore.data.first()[PEOPLE_VERSION] ?: 0
+
+    suspend fun setPeopleAlgorithmVersion(version: Int) = context.dataStore.edit { it[PEOPLE_VERSION] = version }
+
     suspend fun markSmartAlbumsBuilt(at: Long) = context.dataStore.edit {
         it[SMART_BUILT_AT] = at
         it[SMART_PENDING] = 0
@@ -102,7 +121,10 @@ class SettingsRepository(private val context: Context) {
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
         val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
         val SMART_EPS = floatPreferencesKey("smart_albums_eps")
+        // Новый ключ: у DBSCAN (прежний face_eps) смысл числа был другой.
+        val FACE_EPS = floatPreferencesKey("face_link_eps")
         val SMART_BUILT_AT = longPreferencesKey("smart_albums_built_at")
+        val PEOPLE_VERSION = intPreferencesKey("people_algorithm_version")
         val SMART_PENDING = intPreferencesKey("smart_albums_pending_changes")
     }
 }

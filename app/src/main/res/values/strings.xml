@@ -11,7 +11,9 @@
     <string name="empty_favorites">Нет избранного</string>
     <string name="item_not_found">Файл не найден</string>
     <string name="favorites">Избранное</string>
-    <string name="indexing_progress">AI-анализ медиатеки: %1$d из %2$d</string>
+    <string name="indexing_progress_phase">%1$s: %2$d из %3$d</string>
+    <string name="indexing_phase_grouping">Группировка фото</string>
+    <string name="indexing_phase_faces">Поиск лиц</string>
 
     <plurals name="items_count">
         <item quantity="one">%d объект</item>
@@ -57,6 +59,16 @@
     <string name="smart_albums_hint">AI сгруппировал похожие фото. Или опишите, что ищете, в строке выше</string>
     <string name="smart_albums_empty">Умные альбомы появятся после AI-анализа медиатеки. А пока опишите, что ищете, — например «закат на море»</string>
     <string name="smart_album_gone">Альбом пересобран — вернитесь к списку умных альбомов</string>
+
+    <string name="people_title">Люди</string>
+    <string name="people_show_all">Все</string>
+    <string name="people_empty">Люди появятся после поиска лиц на фото</string>
+    <string name="person_unnamed">Без имени</string>
+    <string name="person_add_name">Добавить имя</string>
+    <string name="person_open_photos">%1$s — все фото</string>
+    <string name="person_rename">Имя человека</string>
+    <string name="person_name_hint">Имя</string>
+    <string name="action_save">Сохранить</string>
 
     <string name="similar_title">Похожие</string>
     <string name="similar_empty">Похожих фото не найдено</string>
@@ -121,6 +133,8 @@
     <string name="settings_section_indexing">Индексация</string>
     <string name="settings_smart_eps">Радиус группировки</string>
     <string name="settings_smart_eps_desc">Меньше — мелкие, более однородные группы. Больше — крупнее, но разные темы могут склеиться. Альбомы пересобираются после изменения.</string>
+    <string name="settings_face_eps">Радиус группировки лиц</string>
+    <string name="settings_face_eps_desc">Больше — смелее объединяет похожие лица в одного человека. Меньше — строже: один человек может разделиться на несколько. Имена сохраняются при пересчёте.</string>
     <string name="settings_reset_default">Сбросить по умолчанию</string>
     <string name="settings_only_charging">Анализировать только на зарядке</string>
     <string name="settings_model_ok">Модель загружена</string>

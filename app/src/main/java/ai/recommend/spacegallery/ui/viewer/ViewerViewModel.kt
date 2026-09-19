@@ -3,6 +3,9 @@ package ai.recommend.spacegallery.ui.viewer
 import ai.recommend.spacegallery.data.media.DeleteResult
 import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.MediaItem
+import ai.recommend.spacegallery.search.people.FaceBox
+import ai.recommend.spacegallery.search.people.PersonOnPhoto
+import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
 import ai.recommend.spacegallery.ui.navigation.ViewerQueue
 import ai.recommend.spacegallery.ui.navigation.ViewerRoute
@@ -12,16 +15,22 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModel(
     private val repository: MediaRepository,
     private val smartAlbums: SmartAlbumRepository,
+    private val people: PeopleRepository,
     handle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -43,6 +52,26 @@ class ViewerViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** Открыто из экрана человека — рамки его лиц на каждом фото (подсветка вместе с кнопками). */
+    val faceBoxes: StateFlow<Map<Long, List<FaceBox>>> =
+        (if (route.queue == ViewerQueue.PERSON) people.observeFaceBoxes(route.albumId) else flowOf(emptyMap()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val currentMediaId = MutableStateFlow<Long?>(null)
+
+    /** Узнанные люди на текущем фото — чипы над кнопками и рамки лиц. */
+    val peopleOnCurrent: StateFlow<List<PersonOnPhoto>> = currentMediaId
+        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else people.observePeopleOnMedia(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Какое фото сейчас на экране (страница, на которой остановился пейджер). */
+    fun onCurrentMedia(mediaId: Long?) {
+        currentMediaId.value = mediaId
+    }
+
+    /** Открыто со страницы человека — подсвечиваем только его лицо. */
+    val highlightsOnlyPerson: Boolean get() = route.queue == ViewerQueue.PERSON
+
     private fun queueFlow(): Flow<List<MediaItem>> = when (route.queue) {
         ViewerQueue.TIMELINE -> repository.observeTimeline()
         ViewerQueue.ALBUM -> repository.observeTimeline(route.albumId)
@@ -50,6 +79,7 @@ class ViewerViewModel(
         ViewerQueue.HIDDEN -> repository.observeHidden()
         ViewerQueue.LIST -> repository.observeByIds(route.ids)
         ViewerQueue.SMART_ALBUM -> smartAlbums.observeItems(route.albumId)
+        ViewerQueue.PERSON -> people.observeMedia(route.albumId)
     }
 
     fun toggleFavorite(item: MediaItem) = viewModelScope.launch {

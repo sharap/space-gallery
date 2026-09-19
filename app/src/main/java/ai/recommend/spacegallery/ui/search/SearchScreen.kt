@@ -2,7 +2,9 @@ package ai.recommend.spacegallery.ui.search
 
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.domain.MediaItem
+import ai.recommend.spacegallery.search.people.Person
 import ai.recommend.spacegallery.search.smart.SmartAlbum
+import ai.recommend.spacegallery.ui.people.PeopleRow
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
@@ -35,8 +37,10 @@ fun SearchScreen(
     /** Открыть элемент; очередь просмотра — все результаты поиска. */
     onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
     onOpenSmartAlbum: (SmartAlbum) -> Unit,
+    onOpenPerson: (Person) -> Unit,
+    onShowAllPeople: () -> Unit,
     viewModel: SearchViewModel = viewModel(
-        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository, c.smartAlbums) },
+        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository, c.smartAlbums, c.people) },
     ),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -66,11 +70,18 @@ fun SearchScreen(
         when (val s = state) {
             SearchUiState.Idle -> {
                 val albums by viewModel.smartAlbumList.collectAsStateWithLifecycle()
+                val people by viewModel.peopleList.collectAsStateWithLifecycle()
                 val list = albums
                 when {
                     list == null -> Unit
-                    list.isEmpty() -> CenteredMessage(stringResource(R.string.smart_albums_empty))
-                    else -> SmartAlbumGrid(list, onOpenSmartAlbum)
+                    list.isEmpty() && people.isEmpty() -> CenteredMessage(stringResource(R.string.smart_albums_empty))
+                    else -> SmartAlbumGrid(
+                        albums = list,
+                        onOpen = onOpenSmartAlbum,
+                        header = {
+                            if (people.isNotEmpty()) PeopleRow(people, onOpenPerson, onShowAllPeople, Modifier.padding(bottom = 8.dp))
+                        },
+                    )
                 }
             }
             SearchUiState.Searching -> CenteredMessage(stringResource(R.string.search_in_progress), loading = true)

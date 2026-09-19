@@ -66,8 +66,10 @@ import kotlinx.coroutines.launch
 fun ViewerScreen(
     onBack: () -> Unit,
     onShowSimilar: (mediaId: Long) -> Unit,
+    /** Открыть страницу человека (все фото с ним) — из чипа «кто на фото». */
+    onOpenPerson: (personId: Long) -> Unit,
     viewModel: ViewerViewModel = viewModel(
-        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, c.smartAlbums, handle) },
+        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, c.smartAlbums, c.people, handle) },
     ),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -76,7 +78,7 @@ fun ViewerScreen(
         when {
             list == null -> CenteredMessage(stringResource(R.string.loading), loading = true)
             list.isEmpty() -> CenteredMessage(stringResource(R.string.item_not_found))
-            else -> ViewerPager(list, viewModel, onBack, onShowSimilar)
+            else -> ViewerPager(list, viewModel, onBack, onShowSimilar, onOpenPerson)
         }
     }
 }
@@ -87,6 +89,7 @@ private fun ViewerPager(
     viewModel: ViewerViewModel,
     onBack: () -> Unit,
     onShowSimilar: (Long) -> Unit,
+    onOpenPerson: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -97,6 +100,13 @@ private fun ViewerPager(
     // settledPage — страница, на которой пейджер остановился (не меняется во время свайпа).
     val current = items.getOrNull(pagerState.settledPage)
 
+    val faceBoxes by viewModel.faceBoxes.collectAsStateWithLifecycle()
+    val peopleOnCurrent by viewModel.peopleOnCurrent.collectAsStateWithLifecycle()
+    LaunchedEffect(current?.id) { viewModel.onCurrentMedia(current?.id) }
+    // Рамки всех узнанных людей на текущем фото (с подписью имени); со страницы человека — только его.
+    val currentBoxes = remember(peopleOnCurrent) {
+        peopleOnCurrent.flatMap { p -> p.boxes.map { it.copy(label = p.person.name) } }
+    }
     val player = rememberViewerPlayer()
     LaunchedEffect(current?.id) { player.bindTo(current) }
 
@@ -117,7 +127,17 @@ private fun ViewerPager(
         val item = items[page]
         val isCurrent = page == pagerState.settledPage
         when (item.type) {
-            MediaType.IMAGE -> PhotoPage(item, isCurrentPage = isCurrent, onTap = toggleChrome)
+            MediaType.IMAGE -> PhotoPage(
+                item,
+                isCurrentPage = isCurrent,
+                onTap = toggleChrome,
+                faceBoxes = when {
+                    viewModel.highlightsOnlyPerson -> faceBoxes[item.id].orEmpty()
+                    isCurrent -> currentBoxes
+                    else -> emptyList()
+                },
+                showFaceBoxes = chromeVisible,
+            )
             MediaType.VIDEO -> VideoPage(item, player = player.takeIf { isCurrent }, onTap = toggleChrome)
         }
     }
@@ -146,6 +166,9 @@ private fun ViewerPager(
             if (current != null) {
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                     if (current.type == MediaType.VIDEO) VideoControls(player)
+                    if (current.type == MediaType.IMAGE && peopleOnCurrent.isNotEmpty()) {
+                        PeopleOnPhotoRow(peopleOnCurrent.map { it.person }, onOpenPerson)
+                    }
                     Row(
                         Modifier
                             .fillMaxWidth()

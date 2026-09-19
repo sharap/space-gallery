@@ -2,6 +2,8 @@ package ai.recommend.spacegallery.ui.search
 
 import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.ScoredMedia
+import ai.recommend.spacegallery.search.people.PeopleRepository
+import ai.recommend.spacegallery.search.people.Person
 import ai.recommend.spacegallery.search.smart.SmartAlbum
 import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,7 +36,12 @@ class SearchViewModel(
     private val engine: SemanticSearchEngine,
     private val repository: MediaRepository,
     smartAlbums: SmartAlbumRepository,
+    people: PeopleRepository,
 ) : ViewModel() {
+
+    /** Люди — ряд над умными альбомами. */
+    val peopleList: StateFlow<List<Person>> = people.observePeople()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Умные альбомы — показываются, пока строка поиска пуста. null — ещё загружаются. */
     val smartAlbumList: StateFlow<List<SmartAlbum>?> = smartAlbums.observeAlbums()

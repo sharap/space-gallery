@@ -9,6 +9,8 @@ import ai.recommend.spacegallery.ui.gallery.FavoritesScreen
 import ai.recommend.spacegallery.ui.gallery.GalleryScreen
 import ai.recommend.spacegallery.ui.hidden.HiddenScreen
 import ai.recommend.spacegallery.ui.more.MoreScreen
+import ai.recommend.spacegallery.ui.people.PeopleScreen
+import ai.recommend.spacegallery.ui.people.PersonScreen
 import ai.recommend.spacegallery.ui.search.SearchScreen
 import ai.recommend.spacegallery.ui.search.SmartAlbumScreen
 import ai.recommend.spacegallery.ui.settings.SettingsScreen
@@ -106,6 +108,17 @@ fun SpaceGalleryNavHost() {
                 SearchScreen(
                     onOpen = ::openViewerList,
                     onOpenSmartAlbum = { navController.navigate(SmartAlbumRoute(it.id, it.name)) },
+                    onOpenPerson = { navController.navigate(PersonRoute(it.id)) },
+                    onShowAllPeople = { navController.navigate(PeopleRoute) },
+                )
+            }
+            composable<PeopleRoute> {
+                PeopleScreen(onBack = navController::popBackStack, onOpenPerson = { navController.navigate(PersonRoute(it.id)) })
+            }
+            composable<PersonRoute> {
+                PersonScreen(
+                    onBack = navController::popBackStack,
+                    onOpen = { item, personId -> openViewer(item, ViewerQueue.PERSON, personId) },
                 )
             }
             composable<SmartAlbumRoute> {
@@ -126,6 +139,7 @@ fun SpaceGalleryNavHost() {
                 ViewerScreen(
                     onBack = navController::popBackStack,
                     onShowSimilar = { navController.navigate(SimilarRoute(it)) },
+                    onOpenPerson = { navController.navigate(PersonRoute(it)) },
                 )
             }
             composable<SimilarRoute> {

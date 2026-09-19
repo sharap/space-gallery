@@ -23,6 +23,8 @@
 | `mclip_tokenizer/vocab.txt`   | `clip-ViT-B-32-multilingual-v1-ONNX/vocab.txt`          |
 | `nsfw.onnx`       | `vit-base-nsfw-detector-ONNX/onnx/model_quantized.onnx` (88 МБ, вход 384×384) |
 | `nsfw_clip.onnx`  | `clip-based-nsfw-detector-b32-ONNX/onnx/model.onnx` (75 КБ, вход — CLIP-эмбеддинг) |
+| `face_detect.onnx` | `face_detection_yunet/onnx/face_detection_yunet_2023mar.onnx` (230 КБ, MIT) |
+| `face_embed.onnx`  | `face_recognition_sface/onnx/model.onnx` (39 МБ, Apache 2.0) |
 
 **Русский и другие языки.** `clip_text_multilingual.onnx` — экспорт
 `sentence-transformers/clip-ViT-B-32-multilingual-v1` (скрипт `export.py` лежит рядом с моделью

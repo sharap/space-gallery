@@ -1,5 +1,6 @@
 package ai.recommend.spacegallery.work
 
+import ai.recommend.spacegallery.domain.IndexingPhase
 import ai.recommend.spacegallery.domain.IndexingProgress
 import android.content.Context
 import android.database.ContentObserver
@@ -75,6 +76,9 @@ class IndexingScheduler(private val context: Context) {
                 isRunning = true,
                 processed = running.progress.getInt(MediaIndexWorker.KEY_PROCESSED, 0),
                 total = running.progress.getInt(MediaIndexWorker.KEY_TOTAL, 0),
+                phase = running.progress.getString(MediaIndexWorker.KEY_PHASE)
+                    ?.let { name -> IndexingPhase.entries.firstOrNull { it.name == name } }
+                    ?: IndexingPhase.ANALYSIS,
             )
         }
 

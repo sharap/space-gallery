@@ -34,6 +34,7 @@ class MediaRepository(
 ) {
     private val dao = db.mediaDao()
     private val smartAlbumDao = db.smartAlbumDao()
+    private val faceDao = db.faceDao()
 
     /** Лента с учётом политики скрытия деликатного контента. [albumId] = null — все медиа. */
     fun observeTimeline(albumId: Long? = null): Flow<List<MediaItem>> =
@@ -71,6 +72,10 @@ class MediaRepository(
     /** Файлы умного альбома по дате, без скрытых вручную. */
     fun observeSmartAlbumItems(albumId: Long): Flow<List<MediaItem>> =
         smartAlbumDao.observeItems(albumId).map { rows -> rows.map { it.toDomain() } }
+
+    /** Фото, на которых есть лица человека, по дате. */
+    fun observePersonMedia(personId: Long): Flow<List<MediaItem>> =
+        faceDao.observePersonMedia(personId).map { rows -> rows.map { it.toDomain() } }
 
     /** Возвращает элементы в порядке [ids]. */
     suspend fun getByIds(ids: List<Long>): List<MediaItem> {

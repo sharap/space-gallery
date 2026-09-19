@@ -3,7 +3,9 @@ package ai.recommend.spacegallery.ui.settings
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
+import ai.recommend.spacegallery.data.settings.DEFAULT_FACE_EPS
 import ai.recommend.spacegallery.data.settings.DEFAULT_SMART_ALBUM_EPS
+import ai.recommend.spacegallery.data.settings.FACE_EPS_RANGE
 import ai.recommend.spacegallery.data.settings.SMART_ALBUM_EPS_RANGE
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +51,7 @@ fun SettingsScreen(
                 c.embeddingIndex,
                 c.models,
                 c.smartAlbumBuilder,
+                c.peopleBuilder,
                 c.appScope,
             )
         },
@@ -96,6 +99,25 @@ fun SettingsScreen(
             TextButton(
                 onClick = { viewModel.setSmartAlbumEps(DEFAULT_SMART_ALBUM_EPS) },
                 enabled = abs(s.smartAlbumEps - DEFAULT_SMART_ALBUM_EPS) > 0.001f,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) { Text(stringResource(R.string.settings_reset_default)) }
+
+            HorizontalDivider()
+            SectionHeader(stringResource(R.string.people_title))
+            val rebuildingPeople by viewModel.isRebuildingPeople.collectAsStateWithLifecycle()
+            SliderSetting(
+                title = stringResource(R.string.settings_face_eps),
+                value = s.faceEps,
+                range = FACE_EPS_RANGE,
+                steps = 24, // шаг 0.01
+                format = { String.format(Locale.getDefault(), "%.2f", it) },
+                description = stringResource(R.string.settings_face_eps_desc),
+                trailing = { if (rebuildingPeople) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
+                onChange = viewModel::setFaceEps,
+            )
+            TextButton(
+                onClick = { viewModel.setFaceEps(DEFAULT_FACE_EPS) },
+                enabled = abs(s.faceEps - DEFAULT_FACE_EPS) > 0.001f,
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) { Text(stringResource(R.string.settings_reset_default)) }
 

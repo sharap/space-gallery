@@ -43,8 +43,12 @@ data class DuplicateGroup(
     val suggestedKeep: MediaItem,
 )
 
+/** Этап фоновой индексации (подпись в уведомлении и в ленте). */
+enum class IndexingPhase { ANALYSIS, GROUPING, FACES }
+
 data class IndexingProgress(
     val isRunning: Boolean,
     val processed: Int = 0,
     val total: Int = 0,
+    val phase: IndexingPhase = IndexingPhase.ANALYSIS,
 )

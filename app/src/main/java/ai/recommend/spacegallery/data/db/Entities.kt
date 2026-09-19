@@ -62,6 +62,12 @@ data class MediaAnalysisEntity(
     val sensitiveScore: Float?,
     /** Файл не удалось декодировать — не пытаемся повторно, пока он не изменится. */
     @ColumnInfo(defaultValue = "0") val isUnreadable: Boolean = false,
+    /**
+     * Версия поиска лиц, которой обработан файл (0 — ещё не искали). Отдельный проход:
+     * лица находятся и на уже проиндексированных фото без пересчёта CLIP/NSFW.
+     * При переанализе файла строка перезаписывается и поиск лиц повторяется.
+     */
+    @ColumnInfo(defaultValue = "0") val facesVersion: Int = 0,
 ) {
     override fun equals(other: Any?): Boolean =
         other is MediaAnalysisEntity && other.mediaId == mediaId &&
