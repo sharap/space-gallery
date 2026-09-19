@@ -2,7 +2,14 @@ package ai.recommend.spacegallery.ui.components
 
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.domain.MediaType
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +39,25 @@ fun MediaThumbnail(
     /** Размыть превью (для деликатного контента в разделе «Скрытое»). */
     blurred: Boolean = false,
     badge: String? = null,
+    /** Сетка в режиме выбора — показывать отметку. */
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
 ) {
+    // Выбранная плитка чуть уменьшается и скругляется — как в Google Photos.
+    val inset by animateDpAsState(if (selected) 10.dp else 0.dp, label = "selectionInset")
+    val corner by animateDpAsState(if (selected) 12.dp else 0.dp, label = "selectionCorner")
     Box(
         modifier
             .aspectRatio(1f)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
     ) {
+      Box(
+        Modifier
+            .fillMaxSize()
+            .padding(inset)
+            .clip(RoundedCornerShape(corner))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+      ) {
         AsyncImage(
             model = item.uri,
             contentDescription = item.displayName,
@@ -77,6 +97,19 @@ fun MediaThumbnail(
                     .align(Alignment.TopEnd)
                     .background(Color.Black.copy(alpha = 0.5f))
                     .padding(horizontal = 4.dp, vertical = 2.dp),
+            )
+        }
+      }
+        if (selectionMode) {
+            Icon(
+                if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = null,
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+                    .size(22.dp)
+                    .then(if (selected) Modifier.background(Color.White, CircleShape) else Modifier),
             )
         }
     }

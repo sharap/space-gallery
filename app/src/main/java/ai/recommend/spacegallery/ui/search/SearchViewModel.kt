@@ -1,6 +1,8 @@
 package ai.recommend.spacegallery.ui.search
 
+import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.ScoredMedia
+import ai.recommend.spacegallery.ui.components.observeScored
 import ai.recommend.spacegallery.search.SearchOutcome
 import ai.recommend.spacegallery.search.SemanticSearchEngine
 import androidx.lifecycle.ViewModel
@@ -24,7 +26,10 @@ sealed interface SearchUiState {
 }
 
 @OptIn(FlowPreview::class)
-class SearchViewModel(private val engine: SemanticSearchEngine) : ViewModel() {
+class SearchViewModel(
+    private val engine: SemanticSearchEngine,
+    private val repository: MediaRepository,
+) : ViewModel() {
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -44,10 +49,13 @@ class SearchViewModel(private val engine: SemanticSearchEngine) : ViewModel() {
                         return@collectLatest
                     }
                     _state.value = SearchUiState.Searching
-                    _state.value = when (val outcome = engine.search(q)) {
-                        is SearchOutcome.Results -> SearchUiState.Results(outcome.items)
-                        SearchOutcome.ModelUnavailable -> SearchUiState.ModelUnavailable
-                        SearchOutcome.IndexNotReady -> SearchUiState.IndexNotReady
+                    when (val outcome = engine.search(q)) {
+                        // Живой список до следующего запроса (collectLatest отменит подписку).
+                        is SearchOutcome.Results -> repository.observeScored(outcome.items).collect {
+                            _state.value = SearchUiState.Results(it)
+                        }
+                        SearchOutcome.ModelUnavailable -> _state.value = SearchUiState.ModelUnavailable
+                        SearchOutcome.IndexNotReady -> _state.value = SearchUiState.IndexNotReady
                     }
                 }
         }

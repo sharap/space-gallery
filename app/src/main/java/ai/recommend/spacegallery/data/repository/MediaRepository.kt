@@ -88,6 +88,9 @@ class MediaRepository(
 
     suspend fun setFavorite(id: Long, favorite: Boolean) = dao.setFavorite(id, favorite)
 
+    suspend fun setFavorite(ids: List<Long>, favorite: Boolean) =
+        ids.chunked(MediaDao.SQLITE_MAX_ARGS).forEach { dao.setFavorite(it, favorite) }
+
     suspend fun setHidden(ids: List<Long>, hidden: Boolean) =
         ids.chunked(MediaDao.SQLITE_MAX_ARGS).forEach { dao.setHidden(it, hidden) }
 

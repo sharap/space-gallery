@@ -7,6 +7,8 @@ import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
+import ai.recommend.spacegallery.ui.components.SelectionTopBar
+import ai.recommend.spacegallery.ui.components.rememberSelectionState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -95,12 +97,23 @@ fun AlbumDetailScreen(
     ),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
-    Scaffold(topBar = { BackTopBar(title, onBack) }) { padding ->
+    val selection = rememberSelectionState()
+    Scaffold(
+        topBar = {
+            if (selection.isActive) SelectionTopBar(selection, items.orEmpty()) else BackTopBar(title, onBack)
+        },
+    ) { padding ->
         val list = items
         if (list == null) {
             CenteredMessage(stringResource(R.string.loading), Modifier.padding(padding), loading = true)
         } else {
-            MediaGrid(list, onClick = onOpen, groupByDay = true, modifier = Modifier.padding(padding))
+            MediaGrid(
+                list,
+                onClick = onOpen,
+                groupByDate = true,
+                selection = selection,
+                modifier = Modifier.padding(padding),
+            )
         }
     }
 }

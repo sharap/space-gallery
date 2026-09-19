@@ -7,6 +7,8 @@ import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
+import ai.recommend.spacegallery.ui.components.SelectionTopBar
+import ai.recommend.spacegallery.ui.components.rememberSelectionState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,12 +36,17 @@ fun GalleryScreen(
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
     val indexing by viewModel.indexing.collectAsStateWithLifecycle()
+    val selection = rememberSelectionState()
 
     Scaffold(
         topBar = {
-            Column {
-                TopAppBar(title = { Text(stringResource(R.string.tab_photos)) })
-                IndexingBanner(indexing)
+            if (selection.isActive) {
+                SelectionTopBar(selection, items.orEmpty())
+            } else {
+                Column {
+                    TopAppBar(title = { Text(stringResource(R.string.tab_photos)) })
+                    IndexingBanner(indexing)
+                }
             }
         },
     ) { padding ->
@@ -47,7 +54,13 @@ fun GalleryScreen(
         when {
             list == null -> CenteredMessage(stringResource(R.string.loading), Modifier.padding(padding), loading = true)
             list.isEmpty() -> CenteredMessage(stringResource(R.string.empty_gallery), Modifier.padding(padding))
-            else -> MediaGrid(list, onClick = onOpen, groupByDay = true, modifier = Modifier.padding(padding))
+            else -> MediaGrid(
+                list,
+                onClick = onOpen,
+                groupByDate = true,
+                selection = selection,
+                modifier = Modifier.padding(padding),
+            )
         }
     }
 }
@@ -63,12 +76,21 @@ fun FavoritesScreen(
     ),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
-    Scaffold(topBar = { BackTopBar(stringResource(R.string.favorites), onBack) }) { padding ->
+    val selection = rememberSelectionState()
+    Scaffold(
+        topBar = {
+            if (selection.isActive) {
+                SelectionTopBar(selection, items.orEmpty())
+            } else {
+                BackTopBar(stringResource(R.string.favorites), onBack)
+            }
+        },
+    ) { padding ->
         val list = items
         when {
             list == null -> CenteredMessage(stringResource(R.string.loading), Modifier.padding(padding), loading = true)
             list.isEmpty() -> CenteredMessage(stringResource(R.string.empty_favorites), Modifier.padding(padding))
-            else -> MediaGrid(list, onClick = onOpen, modifier = Modifier.padding(padding))
+            else -> MediaGrid(list, onClick = onOpen, selection = selection, modifier = Modifier.padding(padding))
         }
     }
 }

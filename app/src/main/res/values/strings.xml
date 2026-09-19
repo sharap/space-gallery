@@ -21,8 +21,18 @@
     </plurals>
 
     <string name="action_back">Назад</string>
+    <string name="action_clear_selection">Снять выделение</string>
+    <string name="action_select_all">Выбрать все</string>
+    <string name="action_more">Ещё</string>
     <string name="action_clear">Очистить</string>
     <string name="action_favorite">В избранное</string>
+
+    <plurals name="selected_count">
+        <item quantity="one">Выбран %d</item>
+        <item quantity="few">Выбрано %d</item>
+        <item quantity="many">Выбрано %d</item>
+        <item quantity="other">Выбрано %d</item>
+    </plurals>
     <string name="action_share">Поделиться</string>
     <string name="action_similar">Похожие</string>
     <string name="action_hide">Скрыть</string>

@@ -1,6 +1,8 @@
 package ai.recommend.spacegallery.ui.similar
 
+import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.ScoredMedia
+import ai.recommend.spacegallery.ui.components.observeScored
 import ai.recommend.spacegallery.search.SimilarMediaFinder
 import ai.recommend.spacegallery.ui.navigation.SimilarRoute
 import androidx.lifecycle.SavedStateHandle
@@ -18,7 +20,11 @@ sealed interface SimilarUiState {
     data class Loaded(val items: List<ScoredMedia>) : SimilarUiState
 }
 
-class SimilarViewModel(finder: SimilarMediaFinder, handle: SavedStateHandle) : ViewModel() {
+class SimilarViewModel(
+    finder: SimilarMediaFinder,
+    repository: MediaRepository,
+    handle: SavedStateHandle,
+) : ViewModel() {
     private val mediaId = handle.toRoute<SimilarRoute>().mediaId
 
     private val _state = MutableStateFlow<SimilarUiState>(SimilarUiState.Loading)
@@ -26,9 +32,12 @@ class SimilarViewModel(finder: SimilarMediaFinder, handle: SavedStateHandle) : V
 
     init {
         viewModelScope.launch {
-            _state.value = finder.findSimilar(mediaId)
-                ?.let { SimilarUiState.Loaded(it) }
-                ?: SimilarUiState.NotIndexed
+            val similar = finder.findSimilar(mediaId)
+            if (similar == null) {
+                _state.value = SimilarUiState.NotIndexed
+                return@launch
+            }
+            repository.observeScored(similar).collect { _state.value = SimilarUiState.Loaded(it) }
         }
     }
 }

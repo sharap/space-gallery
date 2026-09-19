@@ -78,6 +78,9 @@ interface MediaDao {
     @Query("UPDATE media SET isFavorite = :favorite WHERE id = :id")
     suspend fun setFavorite(id: Long, favorite: Boolean)
 
+    @Query("UPDATE media SET isFavorite = :favorite WHERE id IN (:ids)")
+    suspend fun setFavorite(ids: List<Long>, favorite: Boolean)
+
     @Query("UPDATE media SET isHiddenByUser = :hidden WHERE id IN (:ids)")
     suspend fun setHidden(ids: List<Long>, hidden: Boolean)
 

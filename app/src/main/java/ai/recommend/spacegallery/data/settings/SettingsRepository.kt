@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -18,7 +19,12 @@ data class GallerySettings(
     val similarityThreshold: Float = 0.75f,
     /** Индексировать только на зарядке. */
     val indexOnlyWhileCharging: Boolean = false,
+    /** Число столбцов сетки медиа (меняется щипком), см. [GRID_COLUMN_LEVELS]. */
+    val gridColumns: Int = 4,
 )
+
+/** Допустимые размеры сетки — шаги щипка. */
+val GRID_COLUMN_LEVELS = listOf(2, 3, 4, 5, 7)
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -31,6 +37,7 @@ class SettingsRepository(private val context: Context) {
             sensitiveThreshold = p[SENSITIVE_THRESHOLD] ?: d.sensitiveThreshold,
             similarityThreshold = p[SIMILARITY_THRESHOLD] ?: d.similarityThreshold,
             indexOnlyWhileCharging = p[ONLY_CHARGING] ?: d.indexOnlyWhileCharging,
+            gridColumns = p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS } ?: d.gridColumns,
         )
     }
 
@@ -40,11 +47,13 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSensitiveThreshold(value: Float) = context.dataStore.edit { it[SENSITIVE_THRESHOLD] = value }
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
+    suspend fun setGridColumns(value: Int) = context.dataStore.edit { it[GRID_COLUMNS] = value }
 
     private companion object {
         val HIDE_SENSITIVE = booleanPreferencesKey("hide_sensitive")
         val SENSITIVE_THRESHOLD = floatPreferencesKey("sensitive_threshold")
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
+        val GRID_COLUMNS = intPreferencesKey("grid_columns")
     }
 }

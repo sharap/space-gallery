@@ -6,6 +6,8 @@ import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
+import ai.recommend.spacegallery.ui.components.SelectionTopBar
+import ai.recommend.spacegallery.ui.components.rememberSelectionState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Visibility
@@ -35,14 +37,19 @@ fun HiddenScreen(
     val items by viewModel.items.collectAsStateWithLifecycle()
     var revealed by rememberSaveable { mutableStateOf(false) }
 
+    val selection = rememberSelectionState()
     Scaffold(
         topBar = {
-            BackTopBar(stringResource(R.string.hidden_title), onBack) {
-                IconButton(onClick = { revealed = !revealed }) {
-                    Icon(
-                        if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                        contentDescription = stringResource(R.string.hidden_toggle_blur),
-                    )
+            if (selection.isActive) {
+                SelectionTopBar(selection, items.orEmpty(), hiddenMode = true)
+            } else {
+                BackTopBar(stringResource(R.string.hidden_title), onBack) {
+                    IconButton(onClick = { revealed = !revealed }) {
+                        Icon(
+                            if (revealed) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                            contentDescription = stringResource(R.string.hidden_toggle_blur),
+                        )
+                    }
                 }
             }
         },
@@ -54,6 +61,7 @@ fun HiddenScreen(
             else -> MediaGrid(
                 list,
                 onClick = onOpen,
+                selection = selection,
                 modifier = Modifier.padding(padding),
                 blurred = { !revealed },
             )

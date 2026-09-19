@@ -5,6 +5,8 @@ import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
+import ai.recommend.spacegallery.ui.components.SelectionTopBar
+import ai.recommend.spacegallery.ui.components.rememberSelectionState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,13 +33,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SearchScreen(
     /** Открыть элемент; очередь просмотра — все результаты поиска. */
     onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
-    viewModel: SearchViewModel = viewModel(factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch) }),
+    viewModel: SearchViewModel = viewModel(
+        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository) },
+    ),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val selection = rememberSelectionState()
+    val results = (state as? SearchUiState.Results)?.items?.map { it.item }.orEmpty()
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        OutlinedTextField(
+        if (selection.isActive) {
+            SelectionTopBar(selection, results)
+        } else OutlinedTextField(
             value = query,
             onValueChange = viewModel::onQueryChange,
             placeholder = { Text(stringResource(R.string.search_hint)) },
@@ -62,8 +70,7 @@ fun SearchScreen(
                 if (s.items.isEmpty()) {
                     CenteredMessage(stringResource(R.string.search_no_results))
                 } else {
-                    val results = s.items.map { it.item }
-                    MediaGrid(results, onClick = { onOpen(it, results) })
+                    MediaGrid(results, onClick = { onOpen(it, results) }, selection = selection)
                 }
         }
     }
