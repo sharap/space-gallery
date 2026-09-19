@@ -1,0 +1,71 @@
+<resources>
+    <string name="app_name">Space Gallery</string>
+
+    <string name="tab_photos">Фото</string>
+    <string name="tab_albums">Альбомы</string>
+    <string name="tab_search">AI-поиск</string>
+    <string name="tab_more">Ещё</string>
+
+    <string name="loading">Загрузка…</string>
+    <string name="empty_gallery">Здесь пока нет фото и видео</string>
+    <string name="empty_favorites">Нет избранного</string>
+    <string name="item_not_found">Файл не найден</string>
+    <string name="favorites">Избранное</string>
+    <string name="indexing_progress">AI-анализ медиатеки: %1$d из %2$d</string>
+
+    <plurals name="items_count">
+        <item quantity="one">%d объект</item>
+        <item quantity="few">%d объекта</item>
+        <item quantity="many">%d объектов</item>
+        <item quantity="other">%d объекта</item>
+    </plurals>
+
+    <string name="action_back">Назад</string>
+    <string name="action_clear">Очистить</string>
+    <string name="action_favorite">В избранное</string>
+    <string name="action_share">Поделиться</string>
+    <string name="action_similar">Похожие</string>
+    <string name="action_hide">Скрыть</string>
+    <string name="action_unhide">Вернуть в ленту</string>
+    <string name="action_delete">Удалить</string>
+
+    <string name="permission_title">Доступ к фото</string>
+    <string name="permission_rationale">Space Gallery показывает ваши фото и видео и анализирует их с помощью AI прямо на устройстве. Ничего не отправляется в сеть.</string>
+    <string name="permission_grant">Разрешить доступ</string>
+
+    <string name="search_hint">Например: «закат на море», «собака в снегу»</string>
+    <string name="search_idle">Опишите, что изображено на фото — AI найдёт подходящие снимки</string>
+    <string name="search_in_progress">Ищем…</string>
+    <string name="search_no_results">Ничего не найдено</string>
+    <string name="search_model_missing">AI-модель поиска не установлена. См. models/README.md</string>
+    <string name="search_index_not_ready">Медиатека ещё индексируется, попробуйте чуть позже</string>
+
+    <string name="similar_title">Похожие</string>
+    <string name="similar_empty">Похожих фото не найдено</string>
+    <string name="similar_not_indexed">Это фото ещё не проанализировано</string>
+
+    <string name="duplicates_title">Дубликаты</string>
+    <string name="duplicates_desc">Одинаковые фото и серии похожих снимков</string>
+    <string name="duplicates_scanning">Ищем дубликаты…</string>
+    <string name="duplicates_empty">Дубликатов не найдено</string>
+    <string name="duplicates_clean_all">Очистить всё</string>
+    <string name="duplicates_keep_best">Оставить лучшее</string>
+    <string name="duplicates_keep_badge">Лучшее</string>
+
+    <string name="hidden_title">Скрытое</string>
+    <string name="hidden_desc">Скрытые вручную и деликатные фото</string>
+    <string name="hidden_empty">Нет скрытых фото</string>
+    <string name="hidden_toggle_blur">Показать / размыть</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="settings_section_privacy">Приватность</string>
+    <string name="settings_hide_sensitive">Скрывать деликатный контент</string>
+    <string name="settings_hide_sensitive_desc">AI на устройстве определяет такие фото и убирает их из ленты в «Скрытое»</string>
+    <string name="settings_sensitive_threshold">Чувствительность фильтра</string>
+    <string name="settings_section_ai">AI</string>
+    <string name="settings_similarity_threshold">Порог схожести</string>
+    <string name="settings_only_charging">Анализировать только на зарядке</string>
+    <string name="settings_model_ok">Модель загружена</string>
+    <string name="settings_model_missing">Модель не найдена — функция отключена</string>
+    <string name="settings_reindex">Переиндексировать медиатеку</string>
+</resources>

@@ -1,0 +1,86 @@
+package ai.recommend.spacegallery.data.db
+
+import androidx.room.ColumnInfo
+import androidx.room.Embedded
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+/** Зеркало записи MediaStore + локальные флаги приложения. */
+@Entity(
+    tableName = "media",
+    indices = [Index("bucketId"), Index("dateTaken")],
+)
+data class MediaEntity(
+    /** MediaStore._ID */
+    @PrimaryKey val id: Long,
+    val uri: String,
+    /** 0 — изображение, 1 — видео (см. [ai.recommend.spacegallery.domain.MediaType]). */
+    val mediaType: Int,
+    val mimeType: String,
+    val displayName: String,
+    val dateTaken: Long,
+    val dateModified: Long,
+    val size: Long,
+    val width: Int,
+    val height: Int,
+    val durationMs: Long,
+    val bucketId: Long,
+    val bucketName: String,
+    @ColumnInfo(defaultValue = "0") val isFavorite: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val isHiddenByUser: Boolean = false,
+)
+
+/**
+ * Результаты локального AI-анализа одного медиафайла.
+ * Любое поле может быть null, если соответствующая модель отсутствует на устройстве.
+ */
+@Entity(
+    tableName = "media_analysis",
+    foreignKeys = [
+        ForeignKey(
+            entity = MediaEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["mediaId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class MediaAnalysisEntity(
+    @PrimaryKey val mediaId: Long,
+    /** dateModified файла на момент анализа — для инвалидации при изменении. */
+    val sourceModified: Long,
+    val pipelineVersion: Int,
+    /** L2-нормализованный вектор CLIP (float32 little-endian). */
+    val embedding: ByteArray?,
+    /** 64-битный dHash для поиска (почти) точных дубликатов. */
+    val perceptualHash: Long?,
+    /** Вероятность NSFW 0..1. */
+    val sensitiveScore: Float?,
+    /** Файл не удалось декодировать — не пытаемся повторно, пока он не изменится. */
+    @ColumnInfo(defaultValue = "0") val isUnreadable: Boolean = false,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is MediaAnalysisEntity && other.mediaId == mediaId &&
+            other.sourceModified == sourceModified && other.pipelineVersion == pipelineVersion
+
+    override fun hashCode(): Int = mediaId.hashCode()
+}
+
+/** media + оценка деликатности из LEFT JOIN. */
+data class MediaWithAnalysis(
+    @Embedded val media: MediaEntity,
+    val sensitiveScore: Float?,
+)
+
+data class EmbeddingRow(val mediaId: Long, val embedding: ByteArray)
+
+data class HashRow(val mediaId: Long, val perceptualHash: Long)
+
+data class AlbumRow(
+    val bucketId: Long,
+    val bucketName: String,
+    val coverUri: String,
+    val itemCount: Int,
+)
