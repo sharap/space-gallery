@@ -33,6 +33,14 @@ class TextEmbedder(
         return null
     }
 
+    /** Только английский CLIP-энкодер (точнее для англоязычных подписей, например меток тем). */
+    suspend fun embedEnglish(text: String): FloatArray? =
+        if (models.isAvailable(english.modelId)) embedWith(english, text) else null
+
+    /** Только многоязычный энкодер. */
+    suspend fun embedMultilingual(text: String): FloatArray? =
+        if (models.isAvailable(multilingual.modelId)) embedWith(multilingual, text) else null
+
     private suspend fun embedWith(backend: TextEncoderBackend, text: String): FloatArray? {
         val session = models.session(backend.modelId) ?: return null
         val encoding = backend.tokenizer.get()?.encode(text) ?: return null

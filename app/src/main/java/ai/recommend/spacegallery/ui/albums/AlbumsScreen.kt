@@ -7,6 +7,7 @@ import ai.recommend.spacegallery.data.settings.GridKind
 import ai.recommend.spacegallery.domain.Album
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.ui.appViewModelFactory
+import ai.recommend.spacegallery.ui.components.AlbumCoverTile
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
@@ -154,8 +155,10 @@ private fun AlbumGrid(
     ) {
         items(albums, key = { it.id }) { album ->
             val selected = album.id in selection
-            AlbumTile(
-                album,
+            AlbumCoverTile(
+                name = album.name,
+                itemCount = album.itemCount,
+                coverUri = album.coverUri,
                 selectionMode = selection.isActive,
                 selected = selected,
                 modifier = Modifier
@@ -177,67 +180,7 @@ private fun AlbumGrid(
     }
 }
 
-/** Обложка альбома: название слева внизу, количество файлов справа внизу или по центру. */
-@Composable
-private fun AlbumTile(album: Album, selectionMode: Boolean, selected: Boolean, modifier: Modifier = Modifier) {
-    val description = album.name + ", " +
-        pluralStringResource(R.plurals.items_count, album.itemCount, album.itemCount)
-    SelectableTile(
-        modifier.semantics(mergeDescendants = true) { contentDescription = description },
-        selectionMode,
-        selected,
-    ) {
-        AsyncImage(
-            model = album.coverUri,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        AlbumLabels(
-            name = album.name,
-            count = remember(album.itemCount) { NumberFormat.getIntegerInstance().format(album.itemCount) },
-            modifier = Modifier.fillMaxSize().padding(4.dp),
-        )
-    }
-}
 
-/**
- * Подписи обложки в стиле длительности видео. Количество стоит справа внизу, если рядом
- * остаётся место хотя бы на начало названия ([MIN_NAME_WIDTH]; длинное название обрезается);
- * иначе (мелкая сетка) количество переезжает в центр плитки, а название занимает всю ширину.
- */
-@Composable
-private fun AlbumLabels(name: String, count: String, modifier: Modifier = Modifier) {
-    Layout(
-        contents = listOf({ ThumbnailLabel(name) }, { ThumbnailLabel(count) }),
-        modifier = modifier,
-    ) { (nameMeasurables, countMeasurables), constraints ->
-        val width = constraints.maxWidth
-        val height = constraints.maxHeight
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val nameMeasurable = nameMeasurables.single()
-        val countPlaceable = countMeasurables.single().measure(loose)
-
-        val gap = LABEL_GAP.roundToPx()
-        val minName = minOf(nameMeasurable.maxIntrinsicWidth(height), MIN_NAME_WIDTH.roundToPx())
-        val countInline = countPlaceable.width + gap + minName <= width
-        val namePlaceable = nameMeasurable.measure(
-            loose.copy(maxWidth = if (countInline) width - countPlaceable.width - gap else width),
-        )
-
-        layout(width, height) {
-            namePlaceable.place(0, height - namePlaceable.height)
-            if (countInline) {
-                countPlaceable.place(width - countPlaceable.width, height - countPlaceable.height)
-            } else {
-                countPlaceable.place((width - countPlaceable.width) / 2, (height - countPlaceable.height) / 2)
-            }
-        }
-    }
-}
-
-private val LABEL_GAP = 6.dp
-private val MIN_NAME_WIDTH = 40.dp
 
 /** Контекстная панель выбора альбомов: переименовать (если выбран один), удалить, выбрать все. */
 @OptIn(ExperimentalMaterial3Api::class)

@@ -3,6 +3,7 @@ package ai.recommend.spacegallery.ui.viewer
 import ai.recommend.spacegallery.data.media.DeleteResult
 import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.MediaItem
+import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
 import ai.recommend.spacegallery.ui.navigation.ViewerQueue
 import ai.recommend.spacegallery.ui.navigation.ViewerRoute
 import androidx.lifecycle.SavedStateHandle
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 
 class ViewerViewModel(
     private val repository: MediaRepository,
+    private val smartAlbums: SmartAlbumRepository,
     handle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -47,6 +49,7 @@ class ViewerViewModel(
         ViewerQueue.FAVORITES -> repository.observeFavorites()
         ViewerQueue.HIDDEN -> repository.observeHidden()
         ViewerQueue.LIST -> repository.observeByIds(route.ids)
+        ViewerQueue.SMART_ALBUM -> smartAlbums.observeItems(route.albumId)
     }
 
     fun toggleFavorite(item: MediaItem) = viewModelScope.launch {

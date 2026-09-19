@@ -3,7 +3,19 @@ package ai.recommend.spacegallery.ui.settings
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
+import ai.recommend.spacegallery.data.settings.DEFAULT_SMART_ALBUM_EPS
+import ai.recommend.spacegallery.data.settings.SMART_ALBUM_EPS_RANGE
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import java.util.Locale
+import kotlin.math.abs
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -30,7 +42,15 @@ fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = viewModel(
         factory = appViewModelFactory { c, _ ->
-            SettingsViewModel(c.settings, c.indexingScheduler, c.database.analysisDao(), c.embeddingIndex, c.models)
+            SettingsViewModel(
+                c.settings,
+                c.indexingScheduler,
+                c.database.analysisDao(),
+                c.embeddingIndex,
+                c.models,
+                c.smartAlbumBuilder,
+                c.appScope,
+            )
         },
     ),
 ) {
@@ -59,6 +79,28 @@ fun SettingsScreen(
                 range = 0.5f..0.95f,
                 onChange = viewModel::setSimilarityThreshold,
             )
+
+            HorizontalDivider()
+            SectionHeader(stringResource(R.string.settings_section_smart_albums))
+            val rebuilding by viewModel.isRebuildingSmartAlbums.collectAsStateWithLifecycle()
+            SliderSetting(
+                title = stringResource(R.string.settings_smart_eps),
+                value = s.smartAlbumEps,
+                range = SMART_ALBUM_EPS_RANGE,
+                steps = 11, // шаг 0.01
+                format = { String.format(Locale.getDefault(), "%.2f", it) },
+                description = stringResource(R.string.settings_smart_eps_desc),
+                trailing = { if (rebuilding) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
+                onChange = viewModel::setSmartAlbumEps,
+            )
+            TextButton(
+                onClick = { viewModel.setSmartAlbumEps(DEFAULT_SMART_ALBUM_EPS) },
+                enabled = abs(s.smartAlbumEps - DEFAULT_SMART_ALBUM_EPS) > 0.001f,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) { Text(stringResource(R.string.settings_reset_default)) }
+
+            HorizontalDivider()
+            SectionHeader(stringResource(R.string.settings_section_indexing))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_only_charging)) },
                 trailingContent = { Switch(checked = s.indexOnlyWhileCharging, onCheckedChange = viewModel::setOnlyWhileCharging) },
@@ -88,11 +130,37 @@ private fun SectionHeader(text: String) {
     )
 }
 
+/**
+ * Ползунок настройки: пока тянут — меняется только локальное значение, сохраняется при отпускании
+ * (не пишем в DataStore на каждый кадр и не запускаем дорогие пересчёты по ходу движения).
+ */
 @Composable
-private fun SliderSetting(title: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+private fun SliderSetting(
+    title: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onChange: (Float) -> Unit,
+    steps: Int = 0,
+    format: (Float) -> String = { "${(it * 100).roundToInt()}%" },
+    description: String? = null,
+    trailing: @Composable () -> Unit = {},
+) {
+    // Сбрасывается на сохранённое значение, когда оно приходит из DataStore.
+    var local by remember(value) { mutableFloatStateOf(value) }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("$title: ${(value * 100).roundToInt()}%", style = MaterialTheme.typography.bodyLarge)
-        // TODO: сохранять значение по onValueChangeFinished, чтобы не писать в DataStore на каждый кадр.
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$title: ${format(local)}", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            trailing()
+        }
+        if (description != null) {
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { if (local != value) onChange(local) },
+            valueRange = range,
+            steps = steps,
+        )
     }
 }

@@ -33,6 +33,7 @@ class MediaRepository(
     private val settings: SettingsRepository,
 ) {
     private val dao = db.mediaDao()
+    private val smartAlbumDao = db.smartAlbumDao()
 
     /** Лента с учётом политики скрытия деликатного контента. [albumId] = null — все медиа. */
     fun observeTimeline(albumId: Long? = null): Flow<List<MediaItem>> =
@@ -66,6 +67,10 @@ class MediaRepository(
             limited.mapNotNull { byId[it]?.toDomain() }
         }
     }
+
+    /** Файлы умного альбома по дате, без скрытых вручную. */
+    fun observeSmartAlbumItems(albumId: Long): Flow<List<MediaItem>> =
+        smartAlbumDao.observeItems(albumId).map { rows -> rows.map { it.toDomain() } }
 
     /** Возвращает элементы в порядке [ids]. */
     suspend fun getByIds(ids: List<Long>): List<MediaItem> {

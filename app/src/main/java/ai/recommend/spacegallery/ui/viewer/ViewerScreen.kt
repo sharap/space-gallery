@@ -67,7 +67,7 @@ fun ViewerScreen(
     onBack: () -> Unit,
     onShowSimilar: (mediaId: Long) -> Unit,
     viewModel: ViewerViewModel = viewModel(
-        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, handle) },
+        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, c.smartAlbums, handle) },
     ),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()

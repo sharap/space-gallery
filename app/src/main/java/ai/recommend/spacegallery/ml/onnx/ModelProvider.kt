@@ -50,6 +50,17 @@ class ModelProvider(
         ids.forEach { sessions.remove(it)?.close() }
     }
 
+    /**
+     * Отпечаток файла модели (размер, дата) — ключ для кешей производных данных,
+     * например эмбеддингов тем умных альбомов. null — модели нет.
+     */
+    fun fingerprint(id: ModelId): String? {
+        userModelFile(id).takeIf { it.exists() }?.let { return "u:${it.length()}:${it.lastModified()}" }
+        if (!assetExists(id)) return null
+        // Модели в assets не сжимаются (noCompress), поэтому длина доступна через openFd.
+        return runCatching { context.assets.openFd("$MODELS_DIR/${id.fileName}").use { "a:${it.length}" } }.getOrNull()
+    }
+
     private fun userModelFile(id: ModelId) = File(File(context.filesDir, MODELS_DIR), id.fileName)
 
     private fun assetExists(id: ModelId): Boolean =

@@ -47,7 +47,15 @@ class MediaIndexWorker(
             c.imageEmbedder.isAvailable,
             c.sensitiveClassifier.isAvailable,
         )
-        if (total == 0) return Result.success()
+        if (total == 0) {
+            // Первый расчёт умных альбомов на уже проиндексированной медиатеке — тоже в foreground,
+            // иначе процесс в фоне получает только энергоэффективные ядра.
+            if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = 0)) {
+                tryStartForeground(0, 0)
+                rebuildSmartAlbums()
+            }
+            return Result.success()
+        }
 
         // Пара новых фото обрабатывается за секунды — не показываем ради них уведомление.
         if (total >= FOREGROUND_THRESHOLD) tryStartForeground(0, total)
@@ -110,12 +118,28 @@ class MediaIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Indexing failed", e)
             return Result.retry()
+            // Пока воркер в foreground и доступны все ядра — пересчитать умные альбомы.
+            if (!isStopped && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = processed)) rebuildSmartAlbums()
         } finally {
             if (processed > 0) c.embeddingIndex.invalidate()
             // Модели занимают сотни МБ нативной памяти — освобождаем после прохода.
             c.models.release(ModelId.CLIP_IMAGE, ModelId.NSFW, ModelId.NSFW_CLIP)
         }
         return if (isStopped) Result.retry() else Result.success()
+    }
+
+    private suspend fun rebuildSmartAlbums() {
+        val c = (applicationContext as SpaceGalleryApp).container
+        try {
+            PerfStats.measure("smart.total") { c.smartAlbumBuilder.rebuild() }
+            Log.i(PERF_TAG, "smart albums:\n" + PerfStats.reportAndReset("smart.total"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Smart albums failed", e) // не повод перезапускать индексацию
+        } finally {
+            c.models.release(ModelId.CLIP_TEXT, ModelId.CLIP_TEXT_MULTILINGUAL)
+        }
     }
 
     /** Используется WorkManager, если воркер запущен как expedited на Android < 12. */

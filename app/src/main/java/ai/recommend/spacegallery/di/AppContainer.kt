@@ -21,9 +21,12 @@ import ai.recommend.spacegallery.search.DuplicateFinder
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.SemanticSearchEngine
 import ai.recommend.spacegallery.search.SimilarMediaFinder
+import ai.recommend.spacegallery.search.smart.SmartAlbumBuilder
+import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
 import ai.recommend.spacegallery.work.MediaAnalyzer
 import ai.recommend.spacegallery.work.IndexingScheduler
 import android.content.Context
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -71,6 +74,16 @@ class AppContainer(context: Context) {
         SemanticSearchEngine(textEmbedder, embeddingIndex, mediaRepository)
     }
     val similarFinder: SimilarMediaFinder by lazy { SimilarMediaFinder(embeddingIndex, mediaRepository, settings) }
+    val smartAlbumBuilder: SmartAlbumBuilder by lazy {
+        SmartAlbumBuilder(
+            database.smartAlbumDao(),
+            settings,
+            textEmbedder,
+            models,
+            topicCacheFile = File(appContext.noBackupFilesDir, "smart_album_topics.bin"),
+        )
+    }
+    val smartAlbums: SmartAlbumRepository by lazy { SmartAlbumRepository(database.smartAlbumDao(), mediaRepository) }
     val duplicateFinder: DuplicateFinder by lazy { DuplicateFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
 
     // --- background ---

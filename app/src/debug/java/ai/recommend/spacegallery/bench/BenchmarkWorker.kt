@@ -31,6 +31,9 @@ import java.io.File
  * Отменить все поставленные прогоны бенчмарка:
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action cancel
  *
+ * Пересчитать умные альбомы (приложение должно быть на экране — иначе фоновые ядра):
+ *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action smart
+ *
  * Переиндексировать всю медиатеку (для замеров конвейера):
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action reindex
  */
@@ -49,6 +52,23 @@ class BenchmarkReceiver : BroadcastReceiver() {
             // Прогоны из ранних версий без имени и тега — отменяем по классу воркера.
             wm.cancelAllWorkByTag(BenchmarkWorker::class.java.name)
             OrtBenchmark.log("=== cancelled")
+            return
+        }
+        if (intent.getStringExtra("action") == "smart") {
+            // Пересчитать умные альбомы сразу (без ожидания индексации) и вывести замеры.
+            val pending = goAsync()
+            val container = (context.applicationContext as SpaceGalleryApp).container
+            container.appScope.launch {
+                val start = android.os.SystemClock.elapsedRealtime()
+                try {
+                    container.smartAlbumBuilder.rebuild()
+                    OrtBenchmark.log("=== smart rebuilt in ${android.os.SystemClock.elapsedRealtime() - start} ms")
+                } catch (e: Exception) {
+                    OrtBenchmark.log("=== smart FAILED: $e")
+                } finally {
+                    pending.finish()
+                }
+            }
             return
         }
         if (intent.getStringExtra("action") == "reindex") {

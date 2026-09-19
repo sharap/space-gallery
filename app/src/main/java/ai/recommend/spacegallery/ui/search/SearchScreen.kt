@@ -2,6 +2,7 @@ package ai.recommend.spacegallery.ui.search
 
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.domain.MediaItem
+import ai.recommend.spacegallery.search.smart.SmartAlbum
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.CenteredMessage
 import ai.recommend.spacegallery.ui.components.MediaGrid
@@ -33,8 +34,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SearchScreen(
     /** Открыть элемент; очередь просмотра — все результаты поиска. */
     onOpen: (item: MediaItem, queue: List<MediaItem>) -> Unit,
+    onOpenSmartAlbum: (SmartAlbum) -> Unit,
     viewModel: SearchViewModel = viewModel(
-        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository) },
+        factory = appViewModelFactory { c, _ -> SearchViewModel(c.semanticSearch, c.mediaRepository, c.smartAlbums) },
     ),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -62,7 +64,15 @@ fun SearchScreen(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
         )
         when (val s = state) {
-            SearchUiState.Idle -> CenteredMessage(stringResource(R.string.search_idle))
+            SearchUiState.Idle -> {
+                val albums by viewModel.smartAlbumList.collectAsStateWithLifecycle()
+                val list = albums
+                when {
+                    list == null -> Unit
+                    list.isEmpty() -> CenteredMessage(stringResource(R.string.smart_albums_empty))
+                    else -> SmartAlbumGrid(list, onOpenSmartAlbum)
+                }
+            }
             SearchUiState.Searching -> CenteredMessage(stringResource(R.string.search_in_progress), loading = true)
             SearchUiState.ModelUnavailable -> CenteredMessage(stringResource(R.string.search_model_missing))
             SearchUiState.IndexNotReady -> CenteredMessage(stringResource(R.string.search_index_not_ready))

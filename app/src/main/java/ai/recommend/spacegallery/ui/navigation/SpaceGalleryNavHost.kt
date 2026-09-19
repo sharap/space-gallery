@@ -10,6 +10,7 @@ import ai.recommend.spacegallery.ui.gallery.GalleryScreen
 import ai.recommend.spacegallery.ui.hidden.HiddenScreen
 import ai.recommend.spacegallery.ui.more.MoreScreen
 import ai.recommend.spacegallery.ui.search.SearchScreen
+import ai.recommend.spacegallery.ui.search.SmartAlbumScreen
 import ai.recommend.spacegallery.ui.settings.SettingsScreen
 import ai.recommend.spacegallery.ui.similar.SimilarScreen
 import ai.recommend.spacegallery.ui.viewer.ViewerScreen
@@ -102,7 +103,16 @@ fun SpaceGalleryNavHost() {
                 )
             }
             composable<SearchRoute> {
-                SearchScreen(onOpen = ::openViewerList)
+                SearchScreen(
+                    onOpen = ::openViewerList,
+                    onOpenSmartAlbum = { navController.navigate(SmartAlbumRoute(it.id, it.name)) },
+                )
+            }
+            composable<SmartAlbumRoute> {
+                SmartAlbumScreen(
+                    onBack = navController::popBackStack,
+                    onOpen = { item, albumId -> openViewer(item, ViewerQueue.SMART_ALBUM, albumId) },
+                )
             }
             composable<MoreRoute> {
                 MoreScreen(

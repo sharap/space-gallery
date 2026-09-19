@@ -6,6 +6,8 @@ import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.search.EmbeddingIndex
+import ai.recommend.spacegallery.search.smart.SmartAlbumBuilder
+import kotlinx.coroutines.CoroutineScope
 import ai.recommend.spacegallery.work.IndexingScheduler
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,7 +22,20 @@ class SettingsViewModel(
     private val analysisDao: AnalysisDao,
     private val index: EmbeddingIndex,
     models: ModelProvider,
+    private val smartAlbums: SmartAlbumBuilder,
+    /** Скоуп приложения: пересчёт умных альбомов доживает до конца, даже если уйти с экрана. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
+
+    val isRebuildingSmartAlbums: StateFlow<Boolean> = smartAlbums.isRebuilding
+
+    /** Сохранить eps и пересобрать умные альбомы (~3 с). */
+    fun setSmartAlbumEps(v: Float) {
+        appScope.launch {
+            settings.setSmartAlbumEps(v)
+            smartAlbums.rebuild()
+        }
+    }
 
     val state: StateFlow<GallerySettings> = settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GallerySettings())
