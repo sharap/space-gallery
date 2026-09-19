@@ -37,6 +37,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Merge
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -302,8 +305,26 @@ class PersonViewModel(private val repository: PeopleRepository, handle: SavedSta
         repository.dismissSuggestion(personId, other.id)
     }
 
+    fun resetConfirmations() = viewModelScope.launch { repository.resetConfirmations(personId) }
+
+    fun markAllNotFaces() = viewModelScope.launch { repository.markPersonAsNotFaces(personId) }
+
+    fun markNotFaces(mediaIds: Collection<Long>) = viewModelScope.launch { repository.markNotFaces(personId, mediaIds) }
+
     fun removePhotos(mediaIds: Collection<Long>) = viewModelScope.launch {
         repository.removeFromPerson(personId, mediaIds)
+    }
+
+    /** Все люди — для выбора, к кому перенести фото. */
+    val people: StateFlow<List<Person>> = repository.observePeople()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun moveTo(mediaIds: Collection<Long>, choice: PersonChoice) = viewModelScope.launch {
+        val target = when (choice) {
+            is PersonChoice.Existing -> choice.person.id
+            is PersonChoice.New -> repository.createPerson(choice.name)
+        }
+        repository.moveToPerson(personId, mediaIds, target)
     }
 }
 
@@ -320,6 +341,10 @@ fun PersonScreen(
     val rebuilding by viewModel.isRebuilding.collectAsStateWithLifecycle()
     val selection = rememberSelectionState()
     var renaming by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var confirmNotFaces by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf(false) }
+    val people by viewModel.people.collectAsStateWithLifecycle()
     val displayName = name ?: stringResource(R.string.person_unnamed)
 
     // После пересборки (объединение/«это не он») подсказки пересчитываются.
@@ -333,8 +358,13 @@ fun PersonScreen(
                         selection,
                         items.orEmpty(),
                         extraMenuActions = listOf(
+                            stringResource(R.string.person_move_to) to { moving = true },
                             stringResource(R.string.person_not_this, displayName) to {
                                 viewModel.removePhotos(selection.selected)
+                                selection.clear()
+                            },
+                            stringResource(R.string.person_not_a_face) to {
+                                viewModel.markNotFaces(selection.selected)
                                 selection.clear()
                             },
                         ),
@@ -343,6 +373,45 @@ fun PersonScreen(
                     BackTopBar(displayName, onBack) {
                         IconButton(onClick = { renaming = true }) {
                             Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.person_rename))
+                        }
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.action_more))
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(stringResource(R.string.person_reset_confirmations))
+                                            Text(
+                                                stringResource(R.string.person_reset_confirmations_desc),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        viewModel.resetConfirmations()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(stringResource(R.string.person_not_faces))
+                                            Text(
+                                                stringResource(R.string.person_not_faces_desc),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        confirmNotFaces = true
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -366,6 +435,36 @@ fun PersonScreen(
                 )
             }
         }
+    }
+
+    if (moving) {
+        PersonPickerSheet(
+            title = stringResource(R.string.person_move_to_title, selection.selected.size),
+            people = people,
+            exclude = setOf(viewModel.personId),
+            onDismiss = { moving = false },
+            onPick = { choice ->
+                moving = false
+                viewModel.moveTo(selection.selected.toList(), choice)
+                selection.clear()
+            },
+        )
+    }
+
+    if (confirmNotFaces) {
+        AlertDialog(
+            onDismissRequest = { confirmNotFaces = false },
+            title = { Text(stringResource(R.string.person_not_faces)) },
+            text = { Text(stringResource(R.string.person_not_faces_desc)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmNotFaces = false
+                    viewModel.markAllNotFaces()
+                    onBack()
+                }) { Text(stringResource(R.string.person_not_faces_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmNotFaces = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 
     if (renaming) {
@@ -422,7 +521,7 @@ private fun SuggestionsCard(
 }
 
 @Composable
-private fun NameDialog(
+internal fun NameDialog(
     title: String,
     text: String,
     initial: String,

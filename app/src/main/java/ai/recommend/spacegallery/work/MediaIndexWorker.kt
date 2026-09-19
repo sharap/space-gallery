@@ -160,11 +160,13 @@ class MediaIndexWorker(
     /** Этап 3: поиск лиц. Возвращает число найденных лиц. */
     private suspend fun indexFaces(c: AppContainer): Int {
         val total = c.faceIndexer.countPending()
-        if (total == 0) return 0
         enterPhase(IndexingPhase.FACES, total, foreground = total >= FOREGROUND_THRESHOLD)
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
+            // Перепроверка ранее найденных неуверенных лиц через CLIP (без повторного поиска).
+            val removed = c.faceIndexer.verifyExisting(isStopped = { isStopped })
+            if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
             val (_, found) = c.faceIndexer.run(isStopped = { isStopped }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
@@ -173,9 +175,9 @@ class MediaIndexWorker(
                     windowStart = SystemClock.elapsedRealtime()
                 }
             }
-            return found
+            return found + removed
         } finally {
-            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED)
+            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.CLIP_IMAGE, ModelId.CLIP_TEXT)
         }
     }
 

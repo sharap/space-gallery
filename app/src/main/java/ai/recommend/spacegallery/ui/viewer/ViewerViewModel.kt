@@ -4,7 +4,10 @@ import ai.recommend.spacegallery.data.media.DeleteResult
 import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.search.people.FaceBox
+import ai.recommend.spacegallery.search.people.Person
 import ai.recommend.spacegallery.search.people.PersonOnPhoto
+import ai.recommend.spacegallery.search.people.PhotoTags
+import ai.recommend.spacegallery.ui.people.PersonChoice
 import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
 import ai.recommend.spacegallery.ui.navigation.ViewerQueue
@@ -64,6 +67,31 @@ class ViewerViewModel(
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else people.observePeopleOnMedia(id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Лица и ручные отметки на текущем фото — для шторки «Люди на фото». */
+    val tagsOnCurrent: StateFlow<PhotoTags> = currentMediaId
+        .flatMapLatest { id -> if (id == null) flowOf(EMPTY_TAGS) else people.observePhotoTags(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EMPTY_TAGS)
+
+    val allPeople: StateFlow<List<Person>> = people.observePeople()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private suspend fun resolve(choice: PersonChoice): Long = when (choice) {
+        is PersonChoice.Existing -> choice.person.id
+        is PersonChoice.New -> people.createPerson(choice.name)
+    }
+
+    fun assignFace(faceId: Long, choice: PersonChoice) = viewModelScope.launch {
+        people.assignFace(faceId, resolve(choice))
+    }
+
+    fun markNotAFace(faceId: Long) = viewModelScope.launch { people.markFaceNotFace(faceId) }
+
+    fun tagPerson(mediaId: Long, choice: PersonChoice) = viewModelScope.launch {
+        people.tagPerson(mediaId, resolve(choice))
+    }
+
+    fun untagPerson(mediaId: Long, personId: Long) = viewModelScope.launch { people.untagPerson(mediaId, personId) }
+
     /** Какое фото сейчас на экране (страница, на которой остановился пейджер). */
     fun onCurrentMedia(mediaId: Long?) {
         currentMediaId.value = mediaId
@@ -80,6 +108,10 @@ class ViewerViewModel(
         ViewerQueue.LIST -> repository.observeByIds(route.ids)
         ViewerQueue.SMART_ALBUM -> smartAlbums.observeItems(route.albumId)
         ViewerQueue.PERSON -> people.observeMedia(route.albumId)
+    }
+
+    private companion object {
+        val EMPTY_TAGS = PhotoTags(emptyList(), emptyList())
     }
 
     fun toggleFavorite(item: MediaItem) = viewModelScope.launch {

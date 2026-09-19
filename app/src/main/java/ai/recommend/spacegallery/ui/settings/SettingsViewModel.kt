@@ -7,6 +7,7 @@ import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.people.PeopleBuilder
+import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumBuilder
 import kotlinx.coroutines.CoroutineScope
 import ai.recommend.spacegallery.work.IndexingScheduler
@@ -25,12 +26,18 @@ class SettingsViewModel(
     models: ModelProvider,
     private val smartAlbums: SmartAlbumBuilder,
     private val people: PeopleBuilder,
+    private val peopleRepository: PeopleRepository,
     /** Скоуп приложения: пересчёт умных альбомов доживает до конца, даже если уйти с экрана. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     val isRebuildingSmartAlbums: StateFlow<Boolean> = smartAlbums.isRebuilding
     val isRebuildingPeople: StateFlow<Boolean> = people.isRebuilding
+
+    /** Сбросить все ручные правки людей (имена остаются). */
+    fun resetPeopleEdits() {
+        appScope.launch { peopleRepository.resetAllManualEdits() }
+    }
 
     /** Сохранить радиус для лиц и пересобрать людей (имена сохраняются). */
     fun setFaceEps(v: Float) {

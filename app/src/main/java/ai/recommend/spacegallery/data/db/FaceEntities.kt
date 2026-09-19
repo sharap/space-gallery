@@ -39,6 +39,13 @@ data class FaceEntity(
      * при пересчёте всегда остаются вместе, а разные подтверждённые люди не сливаются.
      */
     val lockedPersonId: Long? = null,
+    /**
+     * Пользователь пометил: это не лицо (узор, кружка…). Не участвует в людях и служит образцом:
+     * похожие новые срабатывания тоже не попадут в людей.
+     */
+    @ColumnInfo(defaultValue = "0") val isArtifact: Boolean = false,
+    /** Неуверенное срабатывание (score < 0.8) уже проверено CLIP «это лицо?». */
+    @ColumnInfo(defaultValue = "0") val checked: Boolean = false,
 )
 
 /** «Это не он»: лицо не должно попасть к человеку (ограничение для кластеризации). */
@@ -64,6 +71,21 @@ data class FaceRejectionEntity(val faceId: Long, val personId: Long)
     ],
 )
 data class PersonPairDismissalEntity(val personA: Long, val personB: Long)
+
+/**
+ * Ручная отметка «этот человек есть на фото» без рамки лица — когда детектор лица не нашёл
+ * (далеко, в профиль, со спины). В распознавании не участвует: вектора лица нет.
+ */
+@Entity(
+    tableName = "media_person_tag",
+    primaryKeys = ["mediaId", "personId"],
+    indices = [Index("personId")],
+    foreignKeys = [
+        ForeignKey(entity = MediaEntity::class, parentColumns = ["id"], childColumns = ["mediaId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["personId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class MediaPersonTagEntity(val mediaId: Long, val personId: Long)
 
 /** Человек — группа лиц (DBSCAN). Имя задаёт пользователь; сохраняется при пересчёте групп. */
 @Entity(tableName = "person")
@@ -113,8 +135,29 @@ data class PersonFaceRow(
     val bottom: Float,
 )
 
+/** Лицо с фото и человеком — для проверки срабатываний детектора. */
+data class FaceCheckRow(
+    val id: Long,
+    val mediaId: Long,
+    val uri: String,
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val score: Float,
+    val personId: Long?,
+)
+
 /** Рамка лица человека на фото (в долях кадра) — подсветка в просмотрщике. */
 data class FaceBoxRow(val mediaId: Long, val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/** Лицо на фото для ручной отметки: миниатюра и к кому сейчас отнесено. */
+data class FaceOnMediaRow(val id: Long, val thumbnail: ByteArray, val personId: Long?, val name: String?)
+
+/** Человек, отмеченный на фото вручную без рамки лица. */
+data class TaggedPersonRow(val personId: Long, val name: String?, val avatar: ByteArray?)
+
+data class FaceOwner(val personId: Long?, val lockedPersonId: Long?)
 
 data class FaceAssignment(val faceId: Long, val personId: Long)
 
@@ -142,6 +185,33 @@ interface FaceDao {
     )
     suspend fun countPending(version: Int): Int
 
+    // --- Артефакты («это не лицо») ---
+
+    @Query("SELECT embedding FROM face WHERE isArtifact = 1")
+    suspend fun getArtifactEmbeddings(): List<ByteArray>
+
+    @Query("UPDATE face SET isArtifact = 1, personId = NULL, lockedPersonId = NULL WHERE personId = :personId OR lockedPersonId = :personId")
+    suspend fun markPersonAsArtifacts(personId: Long)
+
+    @Query("UPDATE face SET isArtifact = 1, personId = NULL, lockedPersonId = NULL WHERE id IN (:faceIds)")
+    suspend fun markArtifacts(faceIds: List<Long>)
+
+    /** Неуверенные срабатывания, ещё не проверенные CLIP (с их фото). */
+    @Query(
+        """
+        SELECT f.id, f.mediaId, m.uri, f.left, f.top, f.right, f.bottom, f.score, f.personId
+        FROM face f JOIN media m ON m.id = f.mediaId
+        WHERE f.checked = 0 AND f.isArtifact = 0 AND f.score < :below AND f.lockedPersonId IS NULL
+        """
+    )
+    suspend fun getUnchecked(below: Float): List<FaceCheckRow>
+
+    @Query("UPDATE face SET checked = 1 WHERE id IN (:faceIds)")
+    suspend fun markChecked(faceIds: List<Long>)
+
+    @Query("DELETE FROM face WHERE id IN (:faceIds)")
+    suspend fun deleteFaces(faceIds: List<Long>)
+
     // --- Ручные правки людей ---
 
     @Query("SELECT * FROM face_rejection")
@@ -149,6 +219,18 @@ interface FaceDao {
 
     @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
     suspend fun insertRejections(rejections: List<FaceRejectionEntity>)
+
+    @Query("UPDATE face SET lockedPersonId = NULL WHERE lockedPersonId = :personId")
+    suspend fun unlockFacesOf(personId: Long)
+
+    @Query("UPDATE face SET lockedPersonId = NULL WHERE lockedPersonId IS NOT NULL")
+    suspend fun unlockAll()
+
+    @Query("DELETE FROM face_rejection")
+    suspend fun deleteAllRejections()
+
+    @Query("DELETE FROM person_pair_dismissal")
+    suspend fun deleteAllDismissals()
 
     /** Закрепить все текущие лица человека за ним (подтверждение группы). */
     @Query("UPDATE face SET lockedPersonId = :personId WHERE personId = :personId")
@@ -179,6 +261,14 @@ interface FaceDao {
     /** Векторы лиц по людям — для подсказок «это тоже он?». */
     @Query("SELECT id, embedding, personId, lockedPersonId, left, top, right, bottom, score, '' AS uri, 0 AS width, 0 AS height FROM face WHERE personId IS NOT NULL")
     suspend fun getAssignedFaces(): List<FaceClusterRow>
+
+    @Query(
+        """
+        SELECT f.id, f.mediaId, m.uri, f.left, f.top, f.right, f.bottom, f.score, f.personId
+        FROM face f JOIN media m ON m.id = f.mediaId
+        """
+    )
+    suspend fun getAllForCheck(): List<FaceCheckRow>
 
     @Query("SELECT * FROM face WHERE mediaId IN (:mediaIds)")
     suspend fun getFacesForMedia(mediaIds: List<Long>): List<FaceEntity>
@@ -213,7 +303,7 @@ interface FaceDao {
         FROM face f
         JOIN media m ON m.id = f.mediaId
         LEFT JOIN media_analysis a ON a.mediaId = m.id
-        WHERE m.isHiddenByUser = 0
+        WHERE m.isHiddenByUser = 0 AND f.isArtifact = 0
           AND (NOT :hideSensitive OR a.sensitiveScore IS NULL OR a.sensitiveScore < :threshold)
         """
     )
@@ -222,7 +312,8 @@ interface FaceDao {
     @Query("SELECT * FROM person")
     suspend fun getPersons(): List<PersonEntity>
 
-    @Query("SELECT COUNT(*) FROM person WHERE avatar IS NULL")
+    /** Люди только с ручными отметками (без лиц) аватара не имеют — их не считаем. */
+    @Query("SELECT COUNT(*) FROM person p WHERE p.avatar IS NULL AND EXISTS (SELECT 1 FROM face f WHERE f.personId = p.id)")
     suspend fun countPersonsWithoutAvatar(): Int
 
     @Query("UPDATE face SET personId = NULL")
@@ -237,11 +328,9 @@ interface FaceDao {
     @Update
     suspend fun updatePersons(persons: List<PersonEntity>)
 
-    @Query("DELETE FROM person WHERE id NOT IN (:keepIds)")
+    /** Люди, отмеченные на фото вручную (без лиц), при пересчёте групп не удаляются. */
+    @Query("DELETE FROM person WHERE id NOT IN (:keepIds) AND id NOT IN (SELECT personId FROM media_person_tag)")
     suspend fun deletePersonsExcept(keepIds: List<Long>)
-
-    @Query("DELETE FROM person")
-    suspend fun deleteAllPersons()
 
     @Query("UPDATE person SET name = :name WHERE id = :personId")
     suspend fun rename(personId: Long, name: String?)
@@ -251,8 +340,8 @@ interface FaceDao {
         """
         SELECT p.id, p.name,
                COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) AS thumbnail,
-               (SELECT COUNT(DISTINCT f.mediaId) FROM face f JOIN media m ON m.id = f.mediaId
-                WHERE f.personId = p.id AND m.isHiddenByUser = 0) AS mediaCount
+               (SELECT COUNT(*) FROM media m WHERE m.isHiddenByUser = 0 AND m.id IN
+                (SELECT mediaId FROM face WHERE personId = p.id UNION SELECT mediaId FROM media_person_tag WHERE personId = p.id)) AS mediaCount
         FROM person p
         ORDER BY (p.name IS NULL), p.position
         """
@@ -279,12 +368,57 @@ interface FaceDao {
         """
         SELECT p.id, p.name,
                COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) AS thumbnail,
-               (SELECT COUNT(DISTINCT f.mediaId) FROM face f JOIN media m ON m.id = f.mediaId
-                WHERE f.personId = p.id AND m.isHiddenByUser = 0) AS mediaCount
+               (SELECT COUNT(*) FROM media m WHERE m.isHiddenByUser = 0 AND m.id IN
+                (SELECT mediaId FROM face WHERE personId = p.id UNION SELECT mediaId FROM media_person_tag WHERE personId = p.id)) AS mediaCount
         FROM person p
         """
     )
     suspend fun getPersonRows(): List<PersonRow>
+
+    // --- Ручная отметка на фото ---
+
+    /** Все лица на фото (кроме помеченных «не лицо»), слева направо. */
+    @Query(
+        """
+        SELECT f.id, f.thumbnail, f.personId, p.name
+        FROM face f LEFT JOIN person p ON p.id = f.personId
+        WHERE f.mediaId = :mediaId AND f.isArtifact = 0
+        ORDER BY f.left
+        """
+    )
+    fun observeFacesOnMedia(mediaId: Long): Flow<List<FaceOnMediaRow>>
+
+    @Query(
+        """
+        SELECT t.personId, p.name,
+               COALESCE(p.avatar, (SELECT c.thumbnail FROM face c WHERE c.id = p.coverFaceId)) AS avatar
+        FROM media_person_tag t JOIN person p ON p.id = t.personId
+        WHERE t.mediaId = :mediaId
+        """
+    )
+    fun observeTaggedOnMedia(mediaId: Long): Flow<List<TaggedPersonRow>>
+
+    @Query("SELECT personId, lockedPersonId FROM face WHERE id = :faceId")
+    suspend fun getFaceOwner(faceId: Long): FaceOwner?
+
+    /** Лица — к человеку, закреплены (ручная отметка); «не лицо» снимается. */
+    @Query("UPDATE face SET personId = :personId, lockedPersonId = :personId, isArtifact = 0 WHERE id IN (:faceIds)")
+    suspend fun assignAndLock(faceIds: List<Long>, personId: Long)
+
+    @Query("DELETE FROM face_rejection WHERE personId = :personId AND faceId IN (:faceIds)")
+    suspend fun deleteRejections(faceIds: List<Long>, personId: Long)
+
+    @Insert(onConflict = androidx.room.OnConflictStrategy.IGNORE)
+    suspend fun insertTags(tags: List<MediaPersonTagEntity>)
+
+    @Query("DELETE FROM media_person_tag WHERE personId = :personId AND mediaId IN (:mediaIds)")
+    suspend fun deleteTags(personId: Long, mediaIds: List<Long>)
+
+    @Query("SELECT mediaId FROM media_person_tag WHERE personId = :personId AND mediaId IN (:mediaIds)")
+    suspend fun taggedMediaOf(personId: Long, mediaIds: List<Long>): List<Long>
+
+    @Query("UPDATE OR IGNORE media_person_tag SET personId = :target WHERE personId IN (:sources)")
+    suspend fun moveTags(sources: List<Long>, target: Long)
 
     @Query("SELECT name FROM person WHERE id = :personId")
     fun observeName(personId: Long): Flow<String?>
@@ -293,7 +427,9 @@ interface FaceDao {
         """
         SELECT m.*, a.sensitiveScore AS sensitiveScore FROM media m
         LEFT JOIN media_analysis a ON a.mediaId = m.id
-        WHERE m.id IN (SELECT mediaId FROM face WHERE personId = :personId) AND m.isHiddenByUser = 0
+        WHERE m.id IN (SELECT mediaId FROM face WHERE personId = :personId
+                       UNION SELECT mediaId FROM media_person_tag WHERE personId = :personId)
+          AND m.isHiddenByUser = 0
         ORDER BY m.dateTaken DESC
         """
     )

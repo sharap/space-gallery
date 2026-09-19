@@ -10,7 +10,9 @@ import ai.recommend.spacegallery.ml.face.FaceEmbedder
 import ai.recommend.spacegallery.ml.image.BitmapLoader
 import ai.recommend.spacegallery.perf.PerfStats
 import android.graphics.Bitmap
+import ai.recommend.spacegallery.ml.face.FaceVerifier
 import android.graphics.Rect
+import android.graphics.RectF
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import java.io.ByteArrayOutputStream
@@ -25,6 +27,7 @@ class FaceIndexer(
     private val bitmapLoader: BitmapLoader,
     private val detector: FaceDetector,
     private val embedder: FaceEmbedder,
+    private val verifier: FaceVerifier,
     private val dao: FaceDao,
 ) {
     val isAvailable: Boolean get() = detector.isAvailable && embedder.isAvailable
@@ -96,6 +99,7 @@ class FaceIndexer(
         return detected
             .filter { it.box.width() >= minSide && it.box.height() >= minSide }
             .take(MAX_FACES_PER_PHOTO)
+            .filter { face -> PerfStats.measure("faces.verify") { isFace(bitmap, face.box, face.score) } }
             .mapNotNull { face ->
                 val embedding = PerfStats.measure("faces.embed") { embedder.embed(bitmap, face) } ?: return@mapNotNull null
                 FaceEntity(
@@ -107,8 +111,47 @@ class FaceIndexer(
                     score = face.score,
                     embedding = VectorMath.toBytes(embedding),
                     thumbnail = thumbnail(bitmap, face.box.centerX(), face.box.centerY(), max(face.box.width(), face.box.height())),
+                    checked = true,
                 )
             }
+    }
+
+    /**
+     * Неуверенное срабатывание (score < [VERIFY_BELOW]) проверяется CLIP: «лицо» или узор/предмет.
+     * Разметка пользователя (39 артефактов против 710 лиц названных людей): правило
+     * «score < 0.8 и CLIP < 0.5» отсекает 72% артефактов и ни одного настоящего лица.
+     */
+    private suspend fun isFace(bitmap: Bitmap, box: RectF, score: Float): Boolean {
+        if (score >= VERIFY_BELOW) return true
+        val p = verifier.faceProbability(bitmap, box) ?: return true // без CLIP не отбрасываем
+        return p >= MIN_FACE_PROBABILITY
+    }
+
+    /**
+     * Перепроверка уже найденных неуверенных лиц (найдены до появления проверки) — без повторного
+     * поиска лиц, чтобы не терять ручные правки. Подтверждённые пользователем лица не трогаются.
+     * Возвращает число удалённых ложных срабатываний.
+     */
+    suspend fun verifyExisting(isStopped: () -> Boolean): Int {
+        if (!verifier.isAvailable) return 0
+        val unchecked = dao.getUnchecked(VERIFY_BELOW)
+        var removed = 0
+        for ((_, group) in unchecked.groupBy { it.mediaId }) {
+            if (isStopped()) break
+            val bitmap = bitmapLoader.load(group.first().uri.toUri(), MediaType.IMAGE, targetSize = SOURCE_SIZE)
+            if (bitmap == null) {
+                dao.markChecked(group.map { it.id })
+                continue
+            }
+            val (keep, drop) = group.partition { f ->
+                val box = RectF(f.left * bitmap.width, f.top * bitmap.height, f.right * bitmap.width, f.bottom * bitmap.height)
+                isFace(bitmap, box, f.score)
+            }
+            if (drop.isNotEmpty()) dao.deleteFaces(drop.map { it.id })
+            if (keep.isNotEmpty()) dao.markChecked(keep.map { it.id })
+            removed += drop.size
+        }
+        return removed
     }
 
     /** Квадрат вокруг лица с запасом (для круглого аватара) -> JPEG. */
@@ -143,5 +186,7 @@ class FaceIndexer(
         private const val THUMB_SIZE = 128
         private const val THUMB_MARGIN = 1.4f
         private const val INHERIT_IOU = 0.5f
+        private const val VERIFY_BELOW = 0.8f
+        private const val MIN_FACE_PROBABILITY = 0.5f
     }
 }

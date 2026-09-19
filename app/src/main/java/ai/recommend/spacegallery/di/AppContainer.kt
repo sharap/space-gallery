@@ -23,6 +23,7 @@ import ai.recommend.spacegallery.search.SemanticSearchEngine
 import ai.recommend.spacegallery.search.SimilarMediaFinder
 import ai.recommend.spacegallery.ml.face.FaceDetector
 import ai.recommend.spacegallery.ml.face.FaceEmbedder
+import ai.recommend.spacegallery.ml.face.FaceVerifier
 import ai.recommend.spacegallery.search.people.AvatarRenderer
 import ai.recommend.spacegallery.search.people.FaceIndexer
 import ai.recommend.spacegallery.search.people.PeopleBuilder
@@ -91,7 +92,10 @@ class AppContainer(context: Context) {
     }
     val faceDetector: FaceDetector by lazy { FaceDetector(models) }
     val faceEmbedder: FaceEmbedder by lazy { FaceEmbedder(models) }
-    val faceIndexer: FaceIndexer by lazy { FaceIndexer(bitmapLoader, faceDetector, faceEmbedder, database.faceDao()) }
+    val faceVerifier: FaceVerifier by lazy { FaceVerifier(imageEmbedder, textEmbedder) }
+    val faceIndexer: FaceIndexer by lazy {
+        FaceIndexer(bitmapLoader, faceDetector, faceEmbedder, faceVerifier, database.faceDao())
+    }
     val peopleBuilder: PeopleBuilder by lazy {
         PeopleBuilder(database, settings, AvatarRenderer(appContext.contentResolver))
     }

@@ -31,6 +31,9 @@ import java.io.File
  * Отменить все поставленные прогоны бенчмарка:
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action cancel
  *
+ * Проверка лиц через CLIP (P «это лицо» у узнанных и неузнанных лиц):
+ *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action faceverify
+ *
  * Диагностика детекции лиц (только числа в лог):
  *   adb shell am broadcast -n ai.recommend.spacegallery/.bench.BenchmarkReceiver --es action facediag --ei sample 300
  *   adb shell am broadcast ... --es action facediag --es names "IMG_1.jpg,IMG_2.jpg"
@@ -73,6 +76,22 @@ class BenchmarkReceiver : BroadcastReceiver() {
                     pending.finish()
                 }
             }
+            return
+        }
+        if (intent.getStringExtra("action") == "faceartifact") {
+            val request = OneTimeWorkRequestBuilder<FaceArtifactWorker>()
+                .setInputData(workDataOf("name" to (intent.getStringExtra("name") ?: "кружка")))
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            return
+        }
+        if (intent.getStringExtra("action") == "faceverify") {
+            val request = OneTimeWorkRequestBuilder<FaceVerifyWorker>()
+                .setInputData(workDataOf("names" to (intent.getStringExtra("names") ?: "")))
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "facediag") {
@@ -198,6 +217,31 @@ class FaceDiagnosticsWorker(context: Context, params: WorkerParameters) : Corout
             FaceDiagnostics(container).run(inputData.getInt("sample", 300), names)
         } catch (e: Exception) {
             OrtBenchmark.log("=== facediag FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class FaceVerifyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        val names = inputData.getString("names").orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        try {
+            FaceVerifyDiagnostics(container).run(names)
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== faceverify FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class FaceArtifactWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            FaceArtifactDiagnostics(container).run(inputData.getString("name") ?: "кружка")
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== faceartifact FAILED: $e")
         }
         return Result.success()
     }

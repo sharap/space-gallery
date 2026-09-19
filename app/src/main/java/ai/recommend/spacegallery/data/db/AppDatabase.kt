@@ -16,8 +16,9 @@ import androidx.room.RoomDatabase
         PersonEntity::class,
         FaceRejectionEntity::class,
         PersonPairDismissalEntity::class,
+        MediaPersonTagEntity::class,
     ],
-    version = 6,
+    version = 8,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: media.relativePath (для управления альбомами-папками).
@@ -30,6 +31,10 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 4, to = 5),
         // 5 -> 6: ручные правки людей (подтверждённые лица, «это не он», отклонённые подсказки).
         AutoMigration(from = 5, to = 6),
+        // 6 -> 7: артефакты («это не лицо») и отметка проверки CLIP.
+        AutoMigration(from = 6, to = 7),
+        // 7 -> 8: ручные отметки людей на фото без рамки лица.
+        AutoMigration(from = 7, to = 8),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

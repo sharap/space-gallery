@@ -62,15 +62,21 @@ class PeopleBuilder(
         if (faces.size < MIN_PTS) {
             db.withTransaction {
                 dao.clearAssignments()
-                dao.deleteAllPersons()
+                dao.deletePersonsExcept(listOf(-1L))
             }
             return
         }
         val dim = faces.first().embedding.size / 4
         // Плотная матрица сходства n² — при очень больших медиатеках кластеризуем самые чёткие
         // лица, остальные привязываем к ближайшему человеку по строгому порогу.
+        // Лица, похожие на помеченные пользователем артефакты («это не лицо»), в людей не попадают
+        // (кроме подтверждённых самим пользователем).
+        val artifacts = dao.getArtifactEmbeddings().filter { it.size == dim * 4 }.map { VectorMath.fromBytes(it) }
+        val looksLikeArtifact = { row: FaceClusterRow ->
+            row.lockedPersonId == null && artifacts.isNotEmpty() && artifactSimilarity(VectorMath.fromBytes(row.embedding), artifacts) >= ARTIFACT_SIMILARITY
+        }
         // Подтверждённые лица — первыми: они всегда попадают в плотную часть кластеризации.
-        val valid = faces.filter { it.embedding.size == dim * 4 }
+        val valid = faces.filter { it.embedding.size == dim * 4 && !looksLikeArtifact(it) }
             .sortedWith(compareBy<FaceClusterRow> { it.lockedPersonId == null }.thenByDescending { it.pixelSize() * it.score })
         val n = valid.size
         val vectors = FloatArray(n * dim)
@@ -102,6 +108,8 @@ class PeopleBuilder(
                 person == null || valid[face].id !in rejected[person].orEmpty()
             }
         }
+        knnReassign(clusters, valid, anchorOf, vectors, dim, rejected)
+        clusters.removeAll { members -> members.size < MIN_PTS && members.none { anchorOf[it] != null } }
         clusters.sortByDescending { it.size }
 
         // Обложки выбираются и рисуются до транзакции: декодирование оригиналов — долгое.
@@ -145,6 +153,57 @@ class PeopleBuilder(
         settings.setPeopleAlgorithmVersion(ALGORITHM_VERSION)
         Log.i(TAG, "Люди: ${clusters.size} из $n лиц, в группах ${clusters.sumOf { it.size }}")
     }
+
+    /**
+     * Второй шаг после кластеризации: незакреплённые лица, уверенно похожие на подтверждённые
+     * лица какого-то человека (k-NN), переходят в его группу — даже если средняя связь положила
+     * их в другую, неподтверждённую группу или оставила одиночками.
+     */
+    private fun knnReassign(
+        clusters: MutableList<MutableList<Int>>,
+        valid: List<FaceClusterRow>,
+        anchorOf: List<Long?>,
+        vectors: FloatArray,
+        dim: Int,
+        rejected: Map<Long, List<Long>>,
+    ) {
+        val allExamples = valid.indices.filter { anchorOf[it] != null }.groupBy { anchorOf[it]!! }
+            .mapValues { it.value.toIntArray() }
+        if (allExamples.isEmpty()) return
+        // Образцы — только согласованные подтверждённые лица (ошибочно подтверждённые чужие
+        // лица иначе притягивали бы к человеку новых чужих — «снежный ком»).
+        val (examples, dropped) = consistentExamples(vectors, dim, allExamples)
+        for ((person, count) in dropped) {
+            if (count > 0) Log.i(TAG, "k-NN: человек $person — подтверждено ${allExamples.getValue(person).size} лиц, несогласованных (не образцы) $count")
+        }
+        val rejectedSets = rejected.mapValues { it.value.toHashSet() }
+        val candidates = valid.indices.filter { anchorOf[it] == null }.toIntArray()
+        val assigned = knnAssign(vectors, dim, candidates, examples, isRejected = { face, person ->
+            valid[face].id in rejectedSets[person].orEmpty()
+        })
+        if (assigned.isNotEmpty()) {
+            val clusterOfPerson = HashMap<Long, MutableList<Int>>()
+            for (cluster in clusters) cluster.firstNotNullOfOrNull { anchorOf[it] }?.let { clusterOfPerson[it] = cluster }
+            val inCluster = HashMap<Int, MutableList<Int>>()
+            for (cluster in clusters) for (i in cluster) inCluster[i] = cluster
+            var moved = 0
+            for ((face, person) in assigned) {
+                val target = clusterOfPerson[person] ?: continue
+                val current = inCluster[face]
+                if (current === target) continue
+                current?.remove(face)
+                target += face
+                moved++
+            }
+            Log.i(TAG, "k-NN: перенесено $moved лиц к подтверждённым людям (кандидатов ${assigned.size})")
+        }
+        val (correct, wrong, none) = knnSelfCheck(vectors, dim, examples)
+        Log.i(TAG, "k-NN самопроверка на подтверждённых лицах: верно $correct, к другому $wrong, не привязано $none")
+    }
+
+    /** Среднее сходство лица с [KNN_K] самыми похожими помеченными артефактами. */
+    private fun artifactSimilarity(face: FloatArray, artifacts: List<FloatArray>): Float =
+        artifacts.map { VectorMath.dot(face, it) }.sortedDescending().take(KNN_K).average().toFloat()
 
     /** Лица сверх [MAX_DENSE_FACES] — к человеку с самым похожим центром, если сходство ≥ [threshold]. */
     private fun attachRemaining(
@@ -193,14 +252,23 @@ class PeopleBuilder(
     private companion object {
         const val TAG = "People"
 
-        /** 1 — DBSCAN, 2 — средняя связь. Увеличить при смене алгоритма — люди пересоберутся. */
-        const val ALGORITHM_VERSION = 2
+        /**
+         * 1 — DBSCAN, 2 — средняя связь, 3 — + k-NN к подтверждённым, 4–5 — образцы k-NN только
+         * из основной части подтверждённой группы. Увеличить при смене — люди пересоберутся.
+         */
+        const val ALGORITHM_VERSION = 5
         const val EDGE = 0.01f
 
         /** Матрица 3000² float — 36 МБ; дальше — привязка к готовым группам. */
         const val MAX_DENSE_FACES = 3000
         /** Привязка без участия в кластеризации — строже, чем сама группировка. */
         const val ATTACH_MARGIN = 0.1f
+
+        /**
+         * Похоже на помеченные артефакты (k-NN ≥ 0.5) — не лицо. На разметке пользователя:
+         * отсекает 24/39 артефактов, теряет 1/710 настоящих лиц.
+         */
+        const val ARTIFACT_SIMILARITY = 0.5f
         const val MIN_PTS = 3
         /** Группа наследует прежнего человека, если к нему относилось ≥ 40% её лиц. */
         const val INHERIT_FRACTION = 0.4

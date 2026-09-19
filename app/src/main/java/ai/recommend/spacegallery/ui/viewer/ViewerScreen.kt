@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -112,6 +113,7 @@ private fun ViewerPager(
 
     ImmersiveMode(enabled = !chromeVisible)
 
+    var tagging by remember { mutableStateOf(false) }
     var pendingTrash by remember { mutableStateOf<MediaItem?>(null) }
     val confirmTrash = rememberTrashConfirmation {
         pendingTrash?.let(viewModel::onTrashConfirmed)
@@ -185,6 +187,9 @@ private fun ViewerPager(
                         ViewerAction(Icons.Outlined.AutoAwesome, stringResource(R.string.action_similar)) {
                             onShowSimilar(current.id)
                         }
+                        if (current.type == MediaType.IMAGE) {
+                            ViewerAction(Icons.Outlined.PersonAdd, stringResource(R.string.photo_tags_title)) { tagging = true }
+                        }
                         ViewerAction(
                             if (current.isHiddenByUser) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                             stringResource(if (current.isHiddenByUser) R.string.action_unhide else R.string.action_hide),
@@ -198,6 +203,26 @@ private fun ViewerPager(
             }
         }
     }
+
+    if (tagging && current?.type == MediaType.IMAGE) {
+        PhotoTagsFor(current, viewModel, onDismiss = { tagging = false })
+    }
+}
+
+/** Шторка ручной отметки людей на текущем фото. */
+@Composable
+private fun PhotoTagsFor(item: MediaItem, viewModel: ViewerViewModel, onDismiss: () -> Unit) {
+    val tags by viewModel.tagsOnCurrent.collectAsStateWithLifecycle()
+    val people by viewModel.allPeople.collectAsStateWithLifecycle()
+    PhotoTagsSheet(
+        tags = tags,
+        people = people,
+        onAssignFace = viewModel::assignFace,
+        onNotAFace = viewModel::markNotAFace,
+        onTag = { viewModel.tagPerson(item.id, it) },
+        onUntag = { viewModel.untagPerson(item.id, it) },
+        onDismiss = onDismiss,
+    )
 }
 
 /** Скрывает статус-бар и навигацию, пока панели просмотрщика спрятаны; возвращает их при выходе. */

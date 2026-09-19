@@ -10,7 +10,10 @@ import ai.recommend.spacegallery.data.settings.SMART_ALBUM_EPS_RANGE
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +55,7 @@ fun SettingsScreen(
                 c.models,
                 c.smartAlbumBuilder,
                 c.peopleBuilder,
+                c.people,
                 c.appScope,
             )
         },
@@ -120,6 +124,26 @@ fun SettingsScreen(
                 enabled = abs(s.faceEps - DEFAULT_FACE_EPS) > 0.001f,
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) { Text(stringResource(R.string.settings_reset_default)) }
+            var confirmReset by remember { mutableStateOf(false) }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_reset_people_edits)) },
+                supportingContent = { Text(stringResource(R.string.settings_reset_people_edits_desc)) },
+                modifier = Modifier.clickable { confirmReset = true },
+            )
+            if (confirmReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmReset = false },
+                    title = { Text(stringResource(R.string.settings_reset_people_edits)) },
+                    text = { Text(stringResource(R.string.settings_reset_people_edits_desc)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmReset = false
+                            viewModel.resetPeopleEdits()
+                        }) { Text(stringResource(R.string.action_reset)) }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.action_cancel)) } },
+                )
+            }
 
             HorizontalDivider()
             SectionHeader(stringResource(R.string.settings_section_indexing))
