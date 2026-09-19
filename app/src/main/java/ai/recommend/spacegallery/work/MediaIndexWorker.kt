@@ -80,7 +80,7 @@ class MediaIndexWorker(
         } finally {
             if (processed > 0) c.embeddingIndex.invalidate()
             // Модели занимают сотни МБ нативной памяти — освобождаем после прохода.
-            c.models.release(ModelId.CLIP_IMAGE, ModelId.NSFW)
+            c.models.release(ModelId.CLIP_IMAGE, ModelId.NSFW, ModelId.NSFW_CLIP)
         }
         return if (isStopped) Result.retry() else Result.success()
     }

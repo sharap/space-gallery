@@ -36,13 +36,15 @@ class MediaAnalyzer(
                 sensitiveScore = null,
                 isUnreadable = true,
             )
+        // Эмбеддинг считается первым: он же вход быстрого NSFW-префильтра.
+        val embedding = embedder.embed(bitmap)
         return MediaAnalysisEntity(
             mediaId = media.id,
             sourceModified = media.dateModified,
             pipelineVersion = PIPELINE_VERSION,
-            embedding = embedder.embed(bitmap)?.let(VectorMath::toBytes),
+            embedding = embedding?.let(VectorMath::toBytes),
             perceptualHash = PerfStats.measure("dhash") { hasher.dHash(bitmap) },
-            sensitiveScore = classifier.score(bitmap),
+            sensitiveScore = classifier.score(bitmap, embedding),
         )
     }
 

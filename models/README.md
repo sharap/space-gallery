@@ -22,6 +22,7 @@
 | `clip_text_multilingual.onnx` | `clip-ViT-B-32-multilingual-v1-ONNX/onnx/model_quantized.onnx` (136 МБ) |
 | `mclip_tokenizer/vocab.txt`   | `clip-ViT-B-32-multilingual-v1-ONNX/vocab.txt`          |
 | `nsfw.onnx`       | `vit-base-nsfw-detector-ONNX/onnx/model_quantized.onnx` (88 МБ, вход 384×384) |
+| `nsfw_clip.onnx`  | `clip-based-nsfw-detector-b32-ONNX/onnx/model.onnx` (75 КБ, вход — CLIP-эмбеддинг) |
 
 **Русский и другие языки.** `clip_text_multilingual.onnx` — экспорт
 `sentence-transformers/clip-ViT-B-32-multilingual-v1` (скрипт `export.py` лежит рядом с моделью
@@ -31,6 +32,11 @@
 
 Альтернатива на будущее — `siglip2-base-patch16-512-ONNX` (лучше качество, но токенизатор
 Gemma 256k, text int8 ≈ 283 МБ, вход 512×512 и полная переиндексация).
+
+**Деликатный контент — гибрид.** `nsfw_clip.onnx` (LAION CLIP-based-NSFW-Detector, MLP поверх
+CLIP-эмбеддинга, ~0 мс) работает как префильтр; тяжёлый ViT `nsfw.onnx` (~700 мс на кадр)
+запускается только когда префильтр ≥ 1e-4 — примерно на 13% кадров. Порог и замеры —
+`ModelSpecs.NSFW_CLIP_PREFILTER`.
 
 ## Где лежат модели
 

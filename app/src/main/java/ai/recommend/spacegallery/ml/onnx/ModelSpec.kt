@@ -22,6 +22,12 @@ enum class ModelId(val fileName: String) {
 
     /** Классификатор деликатного контента: pixel_values [1,3,384,384] -> logits [1,2]. */
     NSFW("nsfw.onnx"),
+
+    /**
+     * Быстрый NSFW-классификатор поверх эмбеддинга CLIP ViT-B/32 (LAION CLIP-based-NSFW-Detector):
+     * clip_embeds [1,512] -> nsfw_prob [1,1]. Используется как префильтр перед [NSFW].
+     */
+    NSFW_CLIP("nsfw_clip.onnx"),
 }
 
 data class ImageInputSpec(
@@ -51,4 +57,11 @@ object ModelSpecs {
         centerCrop = false,
     )
     const val NSFW_POSITIVE_INDEX = 1
+
+    /**
+     * Порог префильтра [ModelId.NSFW_CLIP]: ниже — кадр считается безопасным без запуска ViT.
+     * Подобран на 2606 реальных фото (2026-09-19): ViT запускается на ~13% кадров и находит
+     * 14/14 кадров, которые сам ViT помечает при пороге 0.7 (20/21 при 0.5).
+     */
+    const val NSFW_CLIP_PREFILTER = 1e-4f
 }

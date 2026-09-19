@@ -19,6 +19,7 @@ DST="$(cd "$(dirname "$0")/.." && pwd)/app/src/debug/assets/models"
 CLIP="$SRC/clip-vit-base-patch32"
 MCLIP="$SRC/clip-ViT-B-32-multilingual-v1-ONNX"
 NSFW="$SRC/vit-base-nsfw-detector-ONNX"
+NSFW_CLIP="$SRC/clip-based-nsfw-detector-b32-ONNX"
 
 # У многоязычного энкодера есть только fp32 и quantized — для прочих вариантов берём quantized.
 MCLIP_MODEL="$MCLIP/onnx/model$SUFFIX.onnx"
@@ -31,5 +32,6 @@ cp -v "$CLIP/vocab.json" "$CLIP/merges.txt" "$DST/clip_tokenizer/"
 cp -v "$MCLIP_MODEL"                       "$DST/clip_text_multilingual.onnx"
 cp -v "$MCLIP/vocab.txt"                    "$DST/mclip_tokenizer/"
 cp -v "$NSFW/onnx/model$SUFFIX.onnx"        "$DST/nsfw.onnx"
+cp -v "$NSFW_CLIP/onnx/model.onnx"          "$DST/nsfw_clip.onnx"   # 75 КБ, есть только fp32
 
 du -sh "$DST"

@@ -8,13 +8,40 @@ import ai.recommend.spacegallery.ml.onnx.ModelSpecs
 import ai.recommend.spacegallery.ml.onnx.floatOutput
 import ai.recommend.spacegallery.perf.PerfStats
 import android.graphics.Bitmap
+import java.nio.FloatBuffer
 
-/** Классификатор деликатного (NSFW) контента: возвращает вероятность 0..1. */
+/**
+ * Классификатор деликатного (NSFW) контента: возвращает вероятность 0..1.
+ *
+ * Гибрид из двух моделей:
+ * 1. [ModelId.NSFW_CLIP] — MLP поверх уже посчитанного CLIP-эмбеддинга (~0 мс);
+ * 2. [ModelId.NSFW] — полный ViT по пикселям (~700 мс на кадр).
+ * ViT запускается только если префильтр не уверен, что кадр безопасен
+ * (см. [ModelSpecs.NSFW_CLIP_PREFILTER]). Если одной из моделей нет — работает другая.
+ */
 class SensitiveContentClassifier(private val models: ModelProvider) {
 
-    val isAvailable: Boolean get() = models.isAvailable(ModelId.NSFW)
+    val isAvailable: Boolean
+        get() = models.isAvailable(ModelId.NSFW) ||
+            (models.isAvailable(ModelId.NSFW_CLIP) && models.isAvailable(ModelId.CLIP_IMAGE))
 
-    suspend fun score(bitmap: Bitmap): Float? {
+    /** @param clipEmbedding L2-нормализованный эмбеддинг CLIP ViT-B/32 этого кадра, если он есть. */
+    suspend fun score(bitmap: Bitmap, clipEmbedding: FloatArray?): Float? {
+        val prefilter = clipEmbedding?.let { scoreFromEmbedding(it) }
+        if (prefilter != null && prefilter < ModelSpecs.NSFW_CLIP_PREFILTER) return prefilter
+        return scoreFromPixels(bitmap) ?: prefilter
+    }
+
+    private suspend fun scoreFromEmbedding(embedding: FloatArray): Float? {
+        val session = models.session(ModelId.NSFW_CLIP) ?: return null
+        return PerfStats.measure("nsfw.clip") {
+            OnnxTensor.createTensor(models.env, FloatBuffer.wrap(embedding), longArrayOf(1, embedding.size.toLong())).use { input ->
+                session.run(mapOf(session.inputNames.first() to input)).use { it.floatOutput()[0] }
+            }
+        }
+    }
+
+    private suspend fun scoreFromPixels(bitmap: Bitmap): Float? {
         val session = PerfStats.measure("nsfw.session") { models.session(ModelId.NSFW) } ?: return null
         val spec = ModelSpecs.NSFW
         val pixels = PerfStats.measure("nsfw.preprocess") { ImageTensorizer.toNchw(bitmap, spec) }
