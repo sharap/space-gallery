@@ -19,9 +19,19 @@ data class GallerySettings(
     val similarityThreshold: Float = 0.75f,
     /** Индексировать только на зарядке. */
     val indexOnlyWhileCharging: Boolean = false,
-    /** Число столбцов сетки медиа (меняется щипком), см. [GRID_COLUMN_LEVELS]. */
+    /** Число столбцов сетки фото (меняется щипком), см. [GRID_COLUMN_LEVELS]. */
     val gridColumns: Int = 4,
-)
+    /** Число столбцов сетки альбомов — отдельная настройка. */
+    val albumGridColumns: Int = 4,
+) {
+    fun columns(kind: GridKind): Int = when (kind) {
+        GridKind.MEDIA -> gridColumns
+        GridKind.ALBUMS -> albumGridColumns
+    }
+}
+
+/** Какая сетка: у фото и у альбомов масштаб независимый. */
+enum class GridKind { MEDIA, ALBUMS }
 
 /** Допустимые размеры сетки — шаги щипка. */
 val GRID_COLUMN_LEVELS = listOf(2, 3, 4, 5, 7)
@@ -38,6 +48,10 @@ class SettingsRepository(private val context: Context) {
             similarityThreshold = p[SIMILARITY_THRESHOLD] ?: d.similarityThreshold,
             indexOnlyWhileCharging = p[ONLY_CHARGING] ?: d.indexOnlyWhileCharging,
             gridColumns = p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS } ?: d.gridColumns,
+            // Пока сетку альбомов не меняли — как у фото (раньше настройка была общей).
+            albumGridColumns = p[ALBUM_GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS }
+                ?: p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS }
+                ?: d.albumGridColumns,
         )
     }
 
@@ -47,7 +61,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSensitiveThreshold(value: Float) = context.dataStore.edit { it[SENSITIVE_THRESHOLD] = value }
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
-    suspend fun setGridColumns(value: Int) = context.dataStore.edit { it[GRID_COLUMNS] = value }
+    suspend fun setGridColumns(kind: GridKind, value: Int) = context.dataStore.edit {
+        it[if (kind == GridKind.MEDIA) GRID_COLUMNS else ALBUM_GRID_COLUMNS] = value
+    }
 
     private companion object {
         val HIDE_SENSITIVE = booleanPreferencesKey("hide_sensitive")
@@ -55,5 +71,6 @@ class SettingsRepository(private val context: Context) {
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
+        val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
     }
 }

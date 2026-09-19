@@ -3,6 +3,7 @@ package ai.recommend.spacegallery.ui.albums
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.data.media.AlbumNames
 import ai.recommend.spacegallery.data.settings.GRID_COLUMN_LEVELS
+import ai.recommend.spacegallery.data.settings.GridKind
 import ai.recommend.spacegallery.domain.Album
 import ai.recommend.spacegallery.domain.MediaItem
 import ai.recommend.spacegallery.ui.appViewModelFactory
@@ -56,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
@@ -70,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import java.text.NumberFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,8 +103,8 @@ fun AlbumsScreen(
 }
 
 /**
- * Альбомы той же сеткой, что и фото: те же столбцы (общая настройка), тот же щипок
- * и тот же мультивыбор (долгое нажатие + протягивание).
+ * Альбомы той же сеткой, что и фото: тот же щипок (но свой масштаб) и тот же мультивыбор
+ * (долгое нажатие + протягивание).
  */
 @Composable
 private fun AlbumGrid(
@@ -110,7 +113,7 @@ private fun AlbumGrid(
     selection: SelectionState,
     modifier: Modifier = Modifier,
 ) {
-    val (columns, setColumns) = rememberGridColumns()
+    val (columns, setColumns) = rememberGridColumns(GridKind.ALBUMS)
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -174,7 +177,7 @@ private fun AlbumGrid(
     }
 }
 
-/** Обложка альбома с названием в левом нижнем углу — в стиле длительности видео. */
+/** Обложка альбома: название слева внизу, количество файлов справа внизу или по центру. */
 @Composable
 private fun AlbumTile(album: Album, selectionMode: Boolean, selected: Boolean, modifier: Modifier = Modifier) {
     val description = album.name + ", " +
@@ -190,9 +193,51 @@ private fun AlbumTile(album: Album, selectionMode: Boolean, selected: Boolean, m
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        ThumbnailLabel(album.name, modifier = Modifier.align(Alignment.BottomStart).padding(4.dp))
+        AlbumLabels(
+            name = album.name,
+            count = remember(album.itemCount) { NumberFormat.getIntegerInstance().format(album.itemCount) },
+            modifier = Modifier.fillMaxSize().padding(4.dp),
+        )
     }
 }
+
+/**
+ * Подписи обложки в стиле длительности видео. Количество стоит справа внизу, если рядом
+ * остаётся место хотя бы на начало названия ([MIN_NAME_WIDTH]; длинное название обрезается);
+ * иначе (мелкая сетка) количество переезжает в центр плитки, а название занимает всю ширину.
+ */
+@Composable
+private fun AlbumLabels(name: String, count: String, modifier: Modifier = Modifier) {
+    Layout(
+        contents = listOf({ ThumbnailLabel(name) }, { ThumbnailLabel(count) }),
+        modifier = modifier,
+    ) { (nameMeasurables, countMeasurables), constraints ->
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val nameMeasurable = nameMeasurables.single()
+        val countPlaceable = countMeasurables.single().measure(loose)
+
+        val gap = LABEL_GAP.roundToPx()
+        val minName = minOf(nameMeasurable.maxIntrinsicWidth(height), MIN_NAME_WIDTH.roundToPx())
+        val countInline = countPlaceable.width + gap + minName <= width
+        val namePlaceable = nameMeasurable.measure(
+            loose.copy(maxWidth = if (countInline) width - countPlaceable.width - gap else width),
+        )
+
+        layout(width, height) {
+            namePlaceable.place(0, height - namePlaceable.height)
+            if (countInline) {
+                countPlaceable.place(width - countPlaceable.width, height - countPlaceable.height)
+            } else {
+                countPlaceable.place((width - countPlaceable.width) / 2, (height - countPlaceable.height) / 2)
+            }
+        }
+    }
+}
+
+private val LABEL_GAP = 6.dp
+private val MIN_NAME_WIDTH = 40.dp
 
 /** Контекстная панель выбора альбомов: переименовать (если выбран один), удалить, выбрать все. */
 @OptIn(ExperimentalMaterial3Api::class)

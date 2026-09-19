@@ -2,6 +2,7 @@ package ai.recommend.spacegallery.ui.components
 
 import ai.recommend.spacegallery.SpaceGalleryApp
 import ai.recommend.spacegallery.data.settings.GRID_COLUMN_LEVELS
+import ai.recommend.spacegallery.data.settings.GridKind
 import ai.recommend.spacegallery.domain.MediaItem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -68,7 +69,7 @@ fun MediaGrid(
     blurred: (MediaItem) -> Boolean = { false },
     badge: (MediaItem) -> String? = { null },
 ) {
-    val (columns, setColumns) = rememberGridColumns()
+    val (columns, setColumns) = rememberGridColumns(GridKind.MEDIA)
     val byMonth = columns >= MONTH_HEADERS_FROM_COLUMNS
     val sections = remember(items, groupByDate, byMonth) {
         if (groupByDate) {
@@ -188,14 +189,17 @@ fun MediaGrid(
     }
 }
 
-/** Число столбцов сетки — общая настройка приложения (фото и альбомы), меняется щипком. */
+/**
+ * Число столбцов сетки, меняется щипком. У фото и альбомов настройки раздельные;
+ * все сетки фото (лента, альбом, поиск...) синхронны между собой.
+ */
 @Composable
-fun rememberGridColumns(): Pair<Int, (Int) -> Unit> {
+fun rememberGridColumns(kind: GridKind): Pair<Int, (Int) -> Unit> {
     val settings = (LocalContext.current.applicationContext as SpaceGalleryApp).container.settings
     val scope = rememberCoroutineScope()
-    val flow = remember(settings) { settings.settings.map { it.gridColumns } }
+    val flow = remember(settings, kind) { settings.settings.map { it.columns(kind) } }
     val columns by flow.collectAsStateWithLifecycle(initialValue = DEFAULT_COLUMNS)
-    return columns to { value -> scope.launch { settings.setGridColumns(value) } }
+    return columns to { value -> scope.launch { settings.setGridColumns(kind, value) } }
 }
 
 private const val DEFAULT_COLUMNS = 4
