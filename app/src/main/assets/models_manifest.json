@@ -58,8 +58,14 @@
     {
       "path": "face_embed.onnx",
       "group": "faces",
-      "size": 38688787,
-      "sha256": "ae6a6ac44d2bdc87924e75fb23d8212430dd24f037f5e035c21deff99afc8b61"
+      "size": 13616099,
+      "sha256": "9cc6e4a75f0e2bf0b1aed94578f144d15175f357bdc05e815e5c4a02b319eb4f"
+    },
+    {
+      "path": "face_embed_hq.onnx",
+      "group": "faces_hq",
+      "size": 174383860,
+      "sha256": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43"
     }
   ]
 }

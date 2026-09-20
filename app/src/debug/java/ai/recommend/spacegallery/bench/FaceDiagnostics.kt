@@ -40,6 +40,7 @@ class FaceDiagnostics(private val c: AppContainer) {
 
     /** [names] — конкретные файлы (подробный лог по каждому); иначе [sample] последних фото. */
     suspend fun run(sample: Int, names: List<String>) {
+        val model = c.settings.current().faceModel
         val centroids = personCentroids()
         val images = c.mediaRepository.observeTimeline().first().filter { it.type == MediaType.IMAGE }
         val picked = if (names.isNotEmpty()) images.filter { it.displayName in names } else images.take(sample)
@@ -56,7 +57,7 @@ class FaceDiagnostics(private val c: AppContainer) {
                     .filter { it.box.width() >= minSide && it.box.height() >= minSide }
                 val st = stats.getValue(v)
                 val known = faces.count { face ->
-                    val e = c.faceEmbedder.embed(bitmap, face)
+                    val e = c.faceEmbedder.embed(bitmap, face, model)
                     val isKnown = e != null && centroids.any { VectorMath.dot(it, e) >= KNOWN_SIMILARITY }
                     if (!isKnown) st.unknownScores += face.score
                     isKnown
@@ -93,7 +94,7 @@ class FaceDiagnostics(private val c: AppContainer) {
     /** Центры групп известных людей. */
     private suspend fun personCentroids(): List<FloatArray> {
         val s = c.settings.current()
-        return c.database.faceDao().getForClustering(s.hideSensitive, s.sensitiveThreshold)
+        return c.database.faceDao().getForClustering(s.hideSensitive, s.sensitiveThreshold, s.faceModel.embedVersion)
             .filter { it.personId != null }
             .groupBy { it.personId }
             .values.map { faces ->

@@ -38,6 +38,17 @@ class BitmapLoader(private val resolver: ContentResolver) {
         runCatching { decodeImage(uri, targetSize).ensureSoftware() }.getOrNull()
     }
 
+    /**
+     * Декодирует снимок в таком масштабе, чтобы лицо размером [faceFraction] (доля длинной
+     * стороны) заняло около [faceSize] пикселей: для распознавания важен размер самого лица,
+     * а не кадра. Больше оригинала не увеличивает.
+     */
+    suspend fun decodeForFace(uri: Uri, faceFraction: Float, faceSize: Int, maxSide: Int): Bitmap? =
+        withContext(Dispatchers.IO) {
+            val target = if (faceFraction <= 0f) maxSide else (faceSize / faceFraction).toInt().coerceIn(faceSize, maxSide)
+            runCatching { decodeImage(uri, target).ensureSoftware() }.getOrNull()
+        }
+
     private fun decodeImage(uri: Uri, targetSize: Int): Bitmap =
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE

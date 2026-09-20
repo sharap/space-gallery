@@ -21,7 +21,7 @@ MCLIP="$SRC/clip-ViT-B-32-multilingual-v1-ONNX"
 NSFW="$SRC/vit-base-nsfw-detector-ONNX"
 NSFW_CLIP="$SRC/clip-based-nsfw-detector-b32-ONNX"
 YUNET="$SRC/face_detection_yunet"
-SFACE="$SRC/face_recognition_sface"
+ARCFACE="$SRC/insightface-buffalo_l"
 
 # У многоязычного энкодера есть только fp32 и quantized — для прочих вариантов берём quantized.
 MCLIP_MODEL="$MCLIP/onnx/model$SUFFIX.onnx"
@@ -36,6 +36,7 @@ cp -v "$MCLIP/vocab.txt"                    "$DST/mclip_tokenizer/"
 cp -v "$NSFW/onnx/model$SUFFIX.onnx"        "$DST/nsfw.onnx"
 cp -v "$NSFW_CLIP/onnx/model.onnx"          "$DST/nsfw_clip.onnx"   # 75 КБ, есть только fp32
 cp -v "$YUNET/onnx/face_detection_yunet_2023mar.onnx" "$DST/face_detect.onnx"  # 230 КБ
-cp -v "$SFACE/onnx/model.onnx"              "$DST/face_embed.onnx"  # 39 МБ fp32 (очищенный граф)
+cp -v "$ARCFACE/w600k_mbf.onnx"             "$DST/face_embed.onnx"     # 13,6 МБ, MobileFaceNet
+cp -v "$ARCFACE/w600k_r50.onnx"             "$DST/face_embed_hq.onnx"  # 174 МБ, ArcFace r50
 
 du -sh "$DST"

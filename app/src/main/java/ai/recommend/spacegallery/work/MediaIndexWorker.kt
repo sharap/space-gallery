@@ -84,9 +84,10 @@ class MediaIndexWorker(
         }
         if (isStopped) return Result.retry()
 
-        if (c.faceIndexer.isAvailable) {
+        if (c.faceIndexer.isAvailable()) {
             val facesFound = try {
-                indexFaces(c)
+                // Сменилась модель векторов — пересчитываем по сохранённым точкам, без поиска лиц.
+                reembedFaces(c) + indexFaces(c)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -202,6 +203,28 @@ class MediaIndexWorker(
         }
     }
 
+    /** Пересчёт векторов лиц после смены модели (лица не ищутся заново). */
+    private suspend fun reembedFaces(c: AppContainer): Int {
+        val total = c.faceReembedder.countPending()
+        if (total == 0) return 0
+        enterPhase(IndexingPhase.FACES, total, foreground = total >= FOREGROUND_THRESHOLD)
+        Log.i(TAG, "Пересчёт векторов лиц новой моделью: $total")
+        var reportedAt = 0
+        var windowStart = SystemClock.elapsedRealtime()
+        return try {
+            c.faceReembedder.run(isStopped = { isStopped }) { processed ->
+                reportProgress(processed, total)
+                if (processed - reportedAt >= PERF_REPORT_EVERY) {
+                    logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.embed")
+                    reportedAt = processed
+                    windowStart = SystemClock.elapsedRealtime()
+                }
+            }
+        } finally {
+            c.models.release(ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
+        }
+    }
+
     /** Этап 3: поиск лиц. Возвращает число найденных лиц. */
     private suspend fun indexFaces(c: AppContainer): Int {
         val total = c.faceIndexer.countPending()
@@ -209,9 +232,6 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
-            // Перепроверка ранее найденных неуверенных лиц через CLIP (без повторного поиска).
-            val removed = c.faceIndexer.verifyExisting(isStopped = { isStopped })
-            if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
             val (_, found) = c.faceIndexer.run(isStopped = { isStopped }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
@@ -220,9 +240,14 @@ class MediaIndexWorker(
                     windowStart = SystemClock.elapsedRealtime()
                 }
             }
+            // Модели лиц (ArcFace ~174 МБ) освобождаются до проверки через CLIP: вместе они
+            // не помещаются — система убивала процесс.
+            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
+            val removed = c.faceIndexer.verifyExisting(isStopped = { isStopped })
+            if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
             return found + removed
         } finally {
-            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.CLIP_IMAGE, ModelId.CLIP_TEXT)
+            c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ, ModelId.CLIP_IMAGE, ModelId.CLIP_TEXT)
         }
     }
 

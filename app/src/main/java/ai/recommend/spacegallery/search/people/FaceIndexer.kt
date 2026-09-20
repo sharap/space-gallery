@@ -1,6 +1,8 @@
 package ai.recommend.spacegallery.search.people
 
 import ai.recommend.spacegallery.data.db.FaceDao
+import ai.recommend.spacegallery.data.settings.FaceModel
+import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.data.db.FaceEntity
 import ai.recommend.spacegallery.data.db.MediaEntity
 import ai.recommend.spacegallery.domain.MediaType
@@ -21,7 +23,10 @@ import kotlin.math.roundToInt
 
 /**
  * Поиск лиц — отдельный проход после основного анализа: YuNet находит лица на превью 640 px,
- * SFace строит вектор, для аватара сохраняется миниатюра. Видео пропускаются.
+ * ArcFace строит вектор, для аватара сохраняется миниатюра. Видео пропускаются.
+ *
+ * При повторном проходе (новая версия детектора или модели векторов) лица ищутся заново, а
+ * ручные правки пользователя переносятся на новые лица по совпадению места в кадре.
  */
 class FaceIndexer(
     private val bitmapLoader: BitmapLoader,
@@ -29,8 +34,9 @@ class FaceIndexer(
     private val embedder: FaceEmbedder,
     private val verifier: FaceVerifier,
     private val dao: FaceDao,
+    private val settings: SettingsRepository,
 ) {
-    val isAvailable: Boolean get() = detector.isAvailable && embedder.isAvailable
+    suspend fun isAvailable(): Boolean = detector.isAvailable && embedder.isAvailable(settings.current().faceModel)
 
     suspend fun countPending(): Int = dao.countPending(FACES_VERSION)
 
@@ -39,6 +45,7 @@ class FaceIndexer(
      * с числом обработанных фото. Возвращает (обработано фото, найдено лиц).
      */
     suspend fun run(isStopped: () -> Boolean, onProgress: suspend (Int) -> Unit): Pair<Int, Int> {
+        val model = settings.current().faceModel
         var processed = 0
         var found = 0
         var afterDate = Long.MAX_VALUE
@@ -50,10 +57,11 @@ class FaceIndexer(
             val done = ArrayList<Long>(page.size)
             for (media in page) {
                 if (isStopped()) break
-                faces += PerfStats.measure("faces.total") { findFaces(media) }
+                faces += PerfStats.measure("faces.total") { findFaces(media, model) }
                 done += media.id
             }
-            dao.saveBatch(done, inheritPersons(done, faces), FACES_VERSION)
+            val (inherited, rejections) = inheritEdits(done, faces)
+            dao.saveBatch(done, inherited, FACES_VERSION, rejections)
             processed += done.size
             found += faces.size
             onProgress(processed)
@@ -64,22 +72,31 @@ class FaceIndexer(
     }
 
     /**
-     * При повторном поиске (новая версия) старые лица фото заменяются новыми — чтобы люди и их
-     * имена не потерялись, новое лицо получает человека старого лица с тем же местом в кадре.
+     * Переносит правки пользователя со старых лиц на новые по совпадению места в кадре:
+     * человека и подтверждение, пометку «это не лицо», проверку CLIP и запреты «это не он»
+     * (их строки удаляются вместе со старым лицом, поэтому возвращаются для пересоздания).
      */
-    private suspend fun inheritPersons(mediaIds: List<Long>, faces: List<FaceEntity>): List<FaceEntity> {
-        val old = dao.getFacesForMedia(mediaIds).filter { it.personId != null || it.lockedPersonId != null }.groupBy { it.mediaId }
-        if (old.isEmpty()) return faces
-        return faces.map { face ->
-            val match = old[face.mediaId]?.maxByOrNull { iou(it, face) }
-            // Подтверждение (закрепление) переходит вместе с человеком.
-            // TODO: «это не он» привязано к старому лицу и при повторном поиске теряется.
-            if (match != null && iou(match, face) >= INHERIT_IOU) {
-                face.copy(personId = match.personId, lockedPersonId = match.lockedPersonId)
-            } else {
-                face
-            }
+    private suspend fun inheritEdits(
+        mediaIds: List<Long>,
+        faces: List<FaceEntity>,
+    ): Pair<List<FaceEntity>, List<Pair<Int, Long>>> {
+        val old = dao.getFacesForMedia(mediaIds)
+        if (old.isEmpty()) return faces to emptyList()
+        val rejectionsOf = dao.getRejectionsFor(old.map { it.id }).groupBy({ it.faceId }) { it.personId }
+        val byMedia = old.groupBy { it.mediaId }
+        val restored = ArrayList<Pair<Int, Long>>()
+        val result = faces.mapIndexed { index, face ->
+            val match = byMedia[face.mediaId]?.maxByOrNull { iou(it, face) }?.takeIf { iou(it, face) >= INHERIT_IOU }
+                ?: return@mapIndexed face
+            for (personId in rejectionsOf[match.id].orEmpty()) restored += index to personId
+            face.copy(
+                personId = match.personId,
+                lockedPersonId = match.lockedPersonId,
+                isArtifact = match.isArtifact,
+                checked = face.checked || match.checked,
+            )
         }
+        return result to restored
     }
 
     private fun iou(a: FaceEntity, b: FaceEntity): Float {
@@ -90,7 +107,7 @@ class FaceIndexer(
         return inter / ((a.right - a.left) * (a.bottom - a.top) + (b.right - b.left) * (b.bottom - b.top) - inter)
     }
 
-    private suspend fun findFaces(media: MediaEntity): List<FaceEntity> {
+    private suspend fun findFaces(media: MediaEntity, model: FaceModel): List<FaceEntity> {
         val bitmap = PerfStats.measure("faces.load") {
             bitmapLoader.load(media.uri.toUri(), MediaType.IMAGE, targetSize = SOURCE_SIZE)
         } ?: return emptyList()
@@ -99,9 +116,8 @@ class FaceIndexer(
         return detected
             .filter { it.box.width() >= minSide && it.box.height() >= minSide }
             .take(MAX_FACES_PER_PHOTO)
-            .filter { face -> PerfStats.measure("faces.verify") { isFace(bitmap, face.box, face.score) } }
             .mapNotNull { face ->
-                val embedding = PerfStats.measure("faces.embed") { embedder.embed(bitmap, face) } ?: return@mapNotNull null
+                val embedding = PerfStats.measure("faces.embed") { embedder.embed(bitmap, face, model) } ?: return@mapNotNull null
                 FaceEntity(
                     mediaId = media.id,
                     left = face.box.left / bitmap.width,
@@ -110,26 +126,26 @@ class FaceIndexer(
                     bottom = face.box.bottom / bitmap.height,
                     score = face.score,
                     embedding = VectorMath.toBytes(embedding),
+                    embedVersion = model.embedVersion,
+                    landmarks = VectorMath.toBytes(
+                        FloatArray(face.landmarks.size) { i ->
+                            if (i % 2 == 0) face.landmarks[i] / bitmap.width else face.landmarks[i] / bitmap.height
+                        }
+                    ),
                     thumbnail = thumbnail(bitmap, face.box.centerX(), face.box.centerY(), max(face.box.width(), face.box.height())),
-                    checked = true,
+                    // Уверенные срабатывания проверять нечем: остальные проверит [verifyExisting].
+                    checked = face.score >= VERIFY_BELOW,
                 )
             }
     }
 
     /**
-     * Неуверенное срабатывание (score < [VERIFY_BELOW]) проверяется CLIP: «лицо» или узор/предмет.
+     * Проверка неуверенных срабатываний (score < [VERIFY_BELOW]) через CLIP: «лицо» или узор,
+     * предмет. Отдельный проход после поиска лиц — так ArcFace и модели CLIP не занимают память
+     * одновременно (процесс убивался системой). Подтверждённые пользователем лица не трогаются.
+     *
      * Разметка пользователя (39 артефактов против 710 лиц названных людей): правило
      * «score < 0.8 и CLIP < 0.5» отсекает 72% артефактов и ни одного настоящего лица.
-     */
-    private suspend fun isFace(bitmap: Bitmap, box: RectF, score: Float): Boolean {
-        if (score >= VERIFY_BELOW) return true
-        val p = verifier.faceProbability(bitmap, box) ?: return true // без CLIP не отбрасываем
-        return p >= MIN_FACE_PROBABILITY
-    }
-
-    /**
-     * Перепроверка уже найденных неуверенных лиц (найдены до появления проверки) — без повторного
-     * поиска лиц, чтобы не терять ручные правки. Подтверждённые пользователем лица не трогаются.
      * Возвращает число удалённых ложных срабатываний.
      */
     suspend fun verifyExisting(isStopped: () -> Boolean): Int {
@@ -145,7 +161,8 @@ class FaceIndexer(
             }
             val (keep, drop) = group.partition { f ->
                 val box = RectF(f.left * bitmap.width, f.top * bitmap.height, f.right * bitmap.width, f.bottom * bitmap.height)
-                isFace(bitmap, box, f.score)
+                // Без CLIP ничего не отбрасываем.
+                (verifier.faceProbability(bitmap, box) ?: 1f) >= MIN_FACE_PROBABILITY
             }
             if (drop.isNotEmpty()) dao.deleteFaces(drop.map { it.id })
             if (keep.isNotEmpty()) dao.markChecked(keep.map { it.id })
@@ -172,9 +189,12 @@ class FaceIndexer(
         /**
          * Увеличить при смене моделей/параметров — лица будут найдены заново
          * (люди и имена сохраняются: новое лицо наследует человека старого по пересечению рамок).
-         * 2 — порог детектора 0.6 и мин. размер лица 2%.
+         * 2 — порог детектора 0.6 и мин. размер лица 2%;
+         * 3 — векторы ArcFace r50 вместо SFace, сохраняются ключевые точки лица;
+         * 4 — повтор: версия 3 успела частично посчитать векторы старой моделью (копия модели
+         * в кеше не обновлялась при замене файла в assets).
          */
-        const val FACES_VERSION = 2
+        const val FACES_VERSION = 4
 
         private const val BATCH = 16
         /** Превью для поиска лиц крупнее, чем для CLIP: иначе мелкие лица не распознать. */

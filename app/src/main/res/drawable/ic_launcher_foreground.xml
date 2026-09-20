@@ -1,30 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
+
+    <!-- Back Ghost Card Outlines -->
+    <path
+        android:pathData="M31,34 L53,28 C55,27.5 57,28.5 57.5,30.5 L63,51 C63.5,53 62.5,55 60.5,55.5 L38.5,61.5 C36.5,62 34.5,61 34,59 L28.5,38.5 C28,36.5 29,34.5 31,34 Z"
+        android:strokeColor="#A8D5EB"
+        android:strokeWidth="1"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M52,28.5 L74,34.5 C76,35 77,37 76.5,39 L71,59.5 C70.5,61.5 68.5,62.5 66.5,62 L44.5,56 C42.5,55.5 41.5,53.5 42,51.5 L47.5,31 C48,29 50,28 52,28.5 Z"
+        android:strokeColor="#A8D5EB"
+        android:strokeWidth="1"
+        android:fillColor="#00000000" />
+
+    <!-- Group: Photo Cards Stack -->
+    <!-- Card 1: Left Card (Orange Dune Landscape) -->
+    <group
+        android:pivotX="43"
+        android:pivotY="52"
+        android:rotation="-14">
+        <!-- Card Background & Border -->
+        <path
+            android:pathData="M28,42 h30 a3,3 0 0 1 3,3 v22 a3,3 0 0 1 -3,3 h-30 a3,3 0 0 1 -3,-3 v-22 a3,3 0 0 1 3,-3 Z"
+            android:fillColor="#FFF8EE"
+            android:strokeColor="#205282"
+            android:strokeWidth="1.5" />
+        <!-- Dune -->
+        <path
+            android:pathData="M26,62 Q38,52 50,60 Q56,64 60,61 v7 h-34 Z"
+            android:fillColor="#EE9C3B" />
+        <!-- Sun -->
+        <path
+            android:pathData="M48,48 a3,3 0 1 1 0,0.01 Z"
+            android:fillColor="#E06D28" />
+    </group>
+
+    <!-- Card 3: Right Card (People Portraits) -->
+    <group
+        android:pivotX="63"
+        android:pivotY="42"
+        android:rotation="12">
+        <!-- Card Background & Border -->
+        <path
+            android:pathData="M48,32 h30 a3,3 0 0 1 3,3 v22 a3,3 0 0 1 -3,3 h-30 a3,3 0 0 1 -3,-3 v-22 a3,3 0 0 1 3,-3 Z"
+            android:fillColor="#FFF3E0"
+            android:strokeColor="#235F8C"
+            android:strokeWidth="1.5" />
+        <!-- Person 1 Silhouette -->
+        <path
+            android:pathData="M56,41 a3,3 0 1 1 0,0.01 Z"
+            android:fillColor="#C86828" />
+        <path
+            android:pathData="M51,52 Q56,46 61,52 Z"
+            android:fillColor="#C86828" />
+        <!-- Person 2 Silhouette -->
+        <path
+            android:pathData="M68,42 a3.5,3.5 0 1 1 0,0.01 Z"
+            android:fillColor="#DF833C" />
+        <path
+            android:pathData="M62,53 Q68,47 74,53 Z"
+            android:fillColor="#DF833C" />
+    </group>
+
+    <!-- Card 2: Center Card (Green Mountains) -->
+    <group
+        android:pivotX="50"
+        android:pivotY="40"
+        android:rotation="-3">
+        <!-- Card Background & Border -->
+        <path
+            android:pathData="M35,30 h30 a3,3 0 0 1 3,3 v22 a3,3 0 0 1 -3,3 h-30 a3,3 0 0 1 -3,-3 v-22 a3,3 0 0 1 3,-3 Z"
+            android:fillColor="#F0FDF8"
+            android:strokeColor="#1E789B"
+            android:strokeWidth="1.5" />
+        <!-- Mountains -->
+        <path
+            android:pathData="M33,54 L44,42 L53,54 Z"
+            android:fillColor="#2DB87B" />
+        <path
+            android:pathData="M45,54 L54,43 L63,54 Z"
+            android:fillColor="#1F9E66" />
+        <!-- Sun -->
+        <path
+            android:pathData="M52,38 a2.8,2.8 0 1 1 0,0.01 Z"
+            android:fillColor="#26C281" />
+    </group>
+
+    <!-- External AI Circuit Lines & Nodes (Extending out from Magnifying Glass) -->
+    <!-- Right External Lines and Nodes -->
+    <path
+        android:pathData="M68,52 L73,49"
+        android:strokeColor="#1292B4"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M75,49 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#1292B4" />
+
+    <path
+        android:pathData="M69,57 L76,57"
+        android:strokeColor="#1292B4"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M78,57 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#1292B4" />
+
+    <path
+        android:pathData="M67,62 L73,64"
+        android:strokeColor="#1292B4"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M75,65 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#1292B4" />
+
+    <!-- Bottom External Lines and Nodes -->
+    <path
+        android:pathData="M52,65 L48,72"
+        android:strokeColor="#18A0BE"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M47,74 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#18A0BE" />
+
+    <path
+        android:pathData="M56,67 L53,75"
+        android:strokeColor="#18A0BE"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M52,77 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#18A0BE" />
+
+    <path
+        android:pathData="M60,67 L59,76"
+        android:strokeColor="#18A0BE"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M59,78 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#18A0BE" />
+
+    <!-- Magnifying Glass Handle -->
+    <path
+        android:pathData="M65,63 L76,74"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
             <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
+                android:startX="65"
+                android:startY="63"
+                android:endX="76"
+                android:endY="74"
                 android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
+                <item android:color="#103B66" android:offset="0.0" />
+                <item android:color="#129AA6" android:offset="0.5" />
+                <item android:color="#26C281" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
+
+    <!-- Lens Interior Fill -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+        android:pathData="M58,56 a13,13 0 1 1 0,0.01"
+        android:fillColor="#E1F5FC" />
+
+    <!-- Lens Outer Ring -->
+    <path
+        android:pathData="M58,56 a13,13 0 1 1 0,0.01"
+        android:strokeColor="#103B66"
+        android:strokeWidth="2.8"
+        android:fillColor="#00000000" />
+
+    <!-- AI Neural Network Circuit Board Pattern inside Lens -->
+    <!-- Central Node -->
+    <path
+        android:pathData="M58,56 a2.8,2.8 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+
+    <!-- Internal Traces and Nodes -->
+    <path
+        android:pathData="M58,56 L52,51 M58,56 L63,49 M58,56 L50,58 M58,56 L65,59 M58,56 L54,63 M58,56 L62,53"
+        android:strokeColor="#103B66"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M52,51 a1.4,1.4 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+    <path
+        android:pathData="M63,49 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+    <path
+        android:pathData="M50,58 a1.5,1.5 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+    <path
+        android:pathData="M65,59 a1.6,1.6 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+    <path
+        android:pathData="M54,63 a1.4,1.4 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+    <path
+        android:pathData="M62,53 a1.4,1.4 0 1 1 0,0.01"
+        android:fillColor="#103B66" />
+
 </vector>

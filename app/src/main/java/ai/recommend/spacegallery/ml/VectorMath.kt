@@ -15,6 +15,13 @@ object VectorMath {
     }
 
     /** Для L2-нормализованных векторов скалярное произведение = косинусная близость. */
+    /** Скалярное произведение двух векторов, лежащих в одном массиве (со смещений). */
+    fun dot(v: FloatArray, aOffset: Int, u: FloatArray, bOffset: Int, dim: Int): Float {
+        var s = 0f
+        for (k in 0 until dim) s += v[aOffset + k] * u[bOffset + k]
+        return s
+    }
+
     fun dot(a: FloatArray, b: FloatArray, bOffset: Int = 0): Float {
         var s = 0f
         for (i in a.indices) s += a[i] * b[bOffset + i]

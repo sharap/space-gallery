@@ -40,7 +40,7 @@ WorkManager: докачка после обрыва (HTTP Range), проверк
 | `nsfw.onnx`       | `vit-base-nsfw-detector-ONNX/onnx/model_quantized.onnx` (88 МБ, вход 384×384) |
 | `nsfw_clip.onnx`  | `clip-based-nsfw-detector-b32-ONNX/onnx/model.onnx` (75 КБ, вход — CLIP-эмбеддинг) |
 | `face_detect.onnx` | `face_detection_yunet/onnx/face_detection_yunet_2023mar.onnx` (230 КБ, MIT) |
-| `face_embed.onnx`  | `face_recognition_sface/onnx/model.onnx` (39 МБ, Apache 2.0) |
+| `face_embed.onnx`  | `insightface-buffalo_l/w600k_r50.onnx` (174 МБ, MIT) |
 
 **Русский и другие языки.** `clip_text_multilingual.onnx` — экспорт
 `sentence-transformers/clip-ViT-B-32-multilingual-v1` (скрипт `export.py` лежит рядом с моделью
@@ -50,6 +50,13 @@ WorkManager: докачка после обрыва (HTTP Range), проверк
 
 Альтернатива на будущее — `siglip2-base-patch16-512-ONNX` (лучше качество, но токенизатор
 Gemma 256k, text int8 ≈ 283 МБ, вход 512×512 и полная переиндексация).
+
+**Распознавание лиц.** `face_embed.onnx` — ArcFace ResNet50 из пакета insightface buffalo_l
+(обучен на WebFace600K, 512 чисел, вход 112×112 RGB, (x − 127.5) / 127.5). Заменил SFace
+(128 чисел) после замера на реальной медиатеке (448 лиц, 2026-09-20): при пороге, отсекающем
+99% пар «разные люди», теряется 1% пар «тот же человек» вместо 7%. MobileFaceNet из buffalo_s
+(13,6 МБ) дал лишь 5% — разница с SFace невелика, поэтому взят r50.
+Скачать: `https://huggingface.co/public-data/insightface/resolve/main/models/buffalo_l/w600k_r50.onnx`.
 
 **Деликатный контент — гибрид.** `nsfw_clip.onnx` (LAION CLIP-based-NSFW-Detector, MLP поверх
 CLIP-эмбеддинга, ~0 мс) работает как префильтр; тяжёлый ViT `nsfw.onnx` (~700 мс на кадр)

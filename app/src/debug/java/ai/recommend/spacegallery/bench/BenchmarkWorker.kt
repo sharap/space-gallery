@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import ai.recommend.spacegallery.SpaceGalleryApp
+import ai.recommend.spacegallery.domain.IndexingPhase
+import ai.recommend.spacegallery.work.IndexingNotifications
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -61,21 +63,13 @@ class BenchmarkReceiver : BroadcastReceiver() {
             OrtBenchmark.log("=== cancelled")
             return
         }
-        if (intent.getStringExtra("action") == "smart") {
-            // Пересчитать умные альбомы сразу (без ожидания индексации) и вывести замеры.
-            val pending = goAsync()
-            val container = (context.applicationContext as SpaceGalleryApp).container
-            container.appScope.launch {
-                val start = android.os.SystemClock.elapsedRealtime()
-                try {
-                    container.smartAlbumBuilder.rebuild()
-                    OrtBenchmark.log("=== smart rebuilt in ${android.os.SystemClock.elapsedRealtime() - start} ms")
-                } catch (e: Exception) {
-                    OrtBenchmark.log("=== smart FAILED: $e")
-                } finally {
-                    pending.finish()
-                }
-            }
+        if (intent.getStringExtra("action") == "smart" || intent.getStringExtra("action") == "people") {
+            // Пересборка идёт минутами: goAsync столько держать нельзя (ANR), поэтому WorkManager.
+            val request = OneTimeWorkRequestBuilder<RebuildWorker>()
+                .setInputData(workDataOf("what" to intent.getStringExtra("action")))
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "modeldl") {
@@ -93,6 +87,34 @@ class BenchmarkReceiver : BroadcastReceiver() {
             // Удалить скачанные модели (останутся встроенные в debug-APK).
             (context.applicationContext as SpaceGalleryApp).container.modelCatalog.dir.deleteRecursively()
             OrtBenchmark.log("=== modeldl cleared")
+            return
+        }
+        if (intent.getStringExtra("action") == "faceres") {
+            val request = OneTimeWorkRequestBuilder<FaceResolutionWorker>()
+                .setInputData(workDataOf("photos" to intent.getIntExtra("photos", 150)))
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            return
+        }
+        if (intent.getStringExtra("action") == "facemodel") {
+            val request = OneTimeWorkRequestBuilder<FaceModelWorker>()
+                .setInputData(
+                    workDataOf(
+                        "photos" to intent.getIntExtra("photos", 400),
+                        "model" to (intent.getStringExtra("model") ?: "face_embed_arc.onnx"),
+                        "std" to intent.getFloatExtra("std", 128f),
+                        "bgr" to intent.getBooleanExtra("bgr", false),
+                    )
+                )
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            return
+        }
+        if (intent.getStringExtra("action") == "faceexport") {
+            val request = OneTimeWorkRequestBuilder<FaceExportWorker>().addTag(TAG_BENCH).build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "places") {
@@ -136,22 +158,6 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 .addTag(TAG_BENCH)
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
-            return
-        }
-        if (intent.getStringExtra("action") == "people") {
-            val pending = goAsync()
-            val container = (context.applicationContext as SpaceGalleryApp).container
-            container.appScope.launch {
-                val start = android.os.SystemClock.elapsedRealtime()
-                try {
-                    container.peopleBuilder.rebuild()
-                    OrtBenchmark.log("=== people rebuilt in ${android.os.SystemClock.elapsedRealtime() - start} ms")
-                } catch (e: Exception) {
-                    OrtBenchmark.log("=== people FAILED: $e")
-                } finally {
-                    pending.finish()
-                }
-            }
             return
         }
         if (intent.getStringExtra("action") == "reindex") {
@@ -296,6 +302,76 @@ class PlacesDiagnosticsWorker(context: Context, params: WorkerParameters) : Coro
             PlacesDiagnostics(container).run(inputData.getInt("sample", 20))
         } catch (e: Exception) {
             OrtBenchmark.log("=== places FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class FaceExportWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            OrtBenchmark.log("=== faceexport: " + FaceExport(container).run())
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== faceexport FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class FaceModelWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    /** Сравнение моделей идёт дольше 10 минут — держим foreground, иначе WorkManager прервёт. */
+    override suspend fun getForegroundInfo() =
+        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.FACES, 0, 0)
+
+    override suspend fun doWork(): Result {
+        runCatching { setForeground(getForegroundInfo()) }
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            FaceModelDiagnostics(container).run(
+                inputData.getInt("photos", 400),
+                inputData.getString("model") ?: "face_embed_arc.onnx",
+                inputData.getFloat("std", 128f),
+                inputData.getBoolean("bgr", false),
+            )
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== facemodel FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class RebuildWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    /** Пересборка людей на большой медиатеке идёт дольше 10 минут — держим foreground. */
+    override suspend fun getForegroundInfo() =
+        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.GROUPING, 0, 0)
+
+    override suspend fun doWork(): Result {
+        runCatching { setForeground(getForegroundInfo()) }
+        val container = (applicationContext as SpaceGalleryApp).container
+        val what = inputData.getString("what") ?: "people"
+        val start = android.os.SystemClock.elapsedRealtime()
+        try {
+            if (what == "smart") container.smartAlbumBuilder.rebuild() else container.peopleBuilder.rebuild()
+            OrtBenchmark.log("=== $what rebuilt in ${android.os.SystemClock.elapsedRealtime() - start} ms")
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== $what FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class FaceResolutionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun getForegroundInfo() =
+        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.FACES, 0, 0)
+
+    override suspend fun doWork(): Result {
+        runCatching { setForeground(getForegroundInfo()) }
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            FaceResolutionDiagnostics(container).run(inputData.getInt("photos", 150))
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== faceres FAILED: $e")
         }
         return Result.success()
     }

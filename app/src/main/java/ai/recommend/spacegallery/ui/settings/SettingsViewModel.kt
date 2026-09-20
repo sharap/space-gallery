@@ -2,6 +2,8 @@ package ai.recommend.spacegallery.ui.settings
 
 import ai.recommend.spacegallery.data.db.AnalysisDao
 import ai.recommend.spacegallery.data.settings.GallerySettings
+import ai.recommend.spacegallery.ml.onnx.ModelProvider
+import ai.recommend.spacegallery.data.settings.FaceModel
 import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.people.PeopleBuilder
@@ -18,6 +20,7 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val settings: SettingsRepository,
+    private val models: ModelProvider,
     private val scheduler: IndexingScheduler,
     private val analysisDao: AnalysisDao,
     private val index: EmbeddingIndex,
@@ -37,6 +40,18 @@ class SettingsViewModel(
     }
 
     /** Сохранить радиус для лиц и пересобрать людей (имена сохраняются). */
+    /** Модель лиц доступна (файл на устройстве): иначе её нельзя выбрать. */
+    fun isModelAvailable(model: FaceModel): Boolean = models.isAvailable(model.modelId)
+
+    /** Смена модели: лица пересчитаются новой моделью, люди пересоберутся (см. MediaIndexWorker). */
+    /** Полный сброс людей: имена и все ручные правки. */
+    fun resetPeopleCompletely() = appScope.launch { peopleRepository.resetPeopleCompletely() }
+
+    fun setFaceModel(model: FaceModel) = viewModelScope.launch {
+        settings.setFaceModel(model)
+        scheduler.ensureIndexingNow(settings.current().indexOnlyWhileCharging)
+    }
+
     fun setFaceEps(v: Float) {
         appScope.launch {
             settings.setFaceEps(v)

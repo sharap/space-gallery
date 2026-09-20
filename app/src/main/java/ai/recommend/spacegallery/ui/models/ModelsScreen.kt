@@ -199,5 +199,6 @@ private fun groupTitle(group: String): Int = when (group) {
     "russian" -> R.string.models_group_russian
     "sensitive" -> R.string.models_group_sensitive
     "faces" -> R.string.models_group_faces
+    "faces_hq" -> R.string.models_group_faces_hq
     else -> R.string.models_group_other
 }

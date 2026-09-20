@@ -34,6 +34,7 @@ import ai.recommend.spacegallery.ml.face.FaceEmbedder
 import ai.recommend.spacegallery.ml.face.FaceVerifier
 import ai.recommend.spacegallery.search.people.AvatarRenderer
 import ai.recommend.spacegallery.search.people.FaceIndexer
+import ai.recommend.spacegallery.search.people.FaceReembedder
 import ai.recommend.spacegallery.search.people.PeopleBuilder
 import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumBuilder
@@ -103,7 +104,7 @@ class AppContainer(context: Context) {
     val faceEmbedder: FaceEmbedder by lazy { FaceEmbedder(models) }
     val faceVerifier: FaceVerifier by lazy { FaceVerifier(imageEmbedder, textEmbedder) }
     val faceIndexer: FaceIndexer by lazy {
-        FaceIndexer(bitmapLoader, faceDetector, faceEmbedder, faceVerifier, database.faceDao())
+        FaceIndexer(bitmapLoader, faceDetector, faceEmbedder, faceVerifier, database.faceDao(), settings)
     }
     val peopleBuilder: PeopleBuilder by lazy {
         PeopleBuilder(database, settings, AvatarRenderer(appContext.contentResolver))
@@ -115,6 +116,7 @@ class AppContainer(context: Context) {
     val locationIndexer: LocationIndexer by lazy { LocationIndexer(appContext, database) }
     val placeIndex: PlaceIndex by lazy { PlaceIndex(appContext.assets) }
     val places: PlacesRepository by lazy { PlacesRepository(database.analysisDao(), placeIndex, mediaRepository) }
+    val faceReembedder: FaceReembedder by lazy { FaceReembedder(database, bitmapLoader, faceEmbedder, settings) }
     val qualityIndexer: QualityIndexer by lazy { QualityIndexer(database, bitmapLoader) }
     val cleanupFinder: CleanupFinder by lazy { CleanupFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
     val cleanup: CleanupRepository by lazy { CleanupRepository(cleanupFinder, mediaRepository, appScope) }

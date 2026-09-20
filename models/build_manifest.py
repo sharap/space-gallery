@@ -22,6 +22,7 @@ GROUPS = {
     "russian": ["clip_text_multilingual.onnx", "mclip_tokenizer/vocab.txt"],
     "sensitive": ["nsfw_clip.onnx", "nsfw.onnx"],
     "faces": ["face_detect.onnx", "face_embed.onnx"],
+    "faces_hq": ["face_embed_hq.onnx"],
 }
 
 

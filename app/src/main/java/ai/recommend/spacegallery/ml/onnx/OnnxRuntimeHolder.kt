@@ -16,6 +16,9 @@ class OnnxRuntimeHolder {
         val options = OrtSession.SessionOptions().apply {
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             setIntraOpNumThreads(intraOpThreads)
+            // Предупакованные копии весов удваивают память крупных моделей (ArcFace ~174 МБ),
+            // из-за чего система убивала процесс во время индексации.
+            addConfigEntry("session.disable_prepacking", "1")
             // Можно попробовать ускорители — прирост сильно зависит от устройства и модели:
             //   addXnnpack(mapOf("intra_op_num_threads" to "4"))
             //   addNnapi()  // устарело в Android 15, но всё ещё работает

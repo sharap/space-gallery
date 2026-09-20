@@ -47,6 +47,10 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        // Юнит-тесты не трогают Android: Log и SystemClock возвращают значения по умолчанию.
+        unitTests.isReturnDefaultValues = true
+    }
     androidResources {
         // ONNX-модели читаются из assets через mmap/стрим — не сжимаем их в APK.
         noCompress += "onnx"

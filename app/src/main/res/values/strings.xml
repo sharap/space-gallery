@@ -78,6 +78,9 @@
     <string name="action_no">Нет</string>
     <string name="person_reset_confirmations">Сбросить подтверждение</string>
     <string name="person_reset_confirmations_desc">Снять закрепление с лиц этого человека. Имя останется.</string>
+    <string name="settings_reset_people_all">Сбросить людей полностью</string>
+    <string name="settings_reset_people_all_desc">Удалить имена и все ручные правки, собрать группы с нуля</string>
+    <string name="settings_reset_people_all_confirm">Будут удалены имена людей, подтверждения, «это не он», отклонённые подсказки и ручные отметки на фото без лица. Сами лица и фотографии останутся. Отменить это нельзя.</string>
     <string name="settings_reset_people_edits">Сбросить ручные правки людей</string>
     <string name="settings_reset_people_edits_desc">Снять все закрепления, «это не он» и отклонённые подсказки. Имена людей сохранятся, группы пересоберутся автоматически.</string>
     <string name="action_reset">Сбросить</string>
@@ -208,6 +211,7 @@
     <string name="models_group_russian">Поиск на русском</string>
     <string name="models_group_sensitive">Деликатный контент</string>
     <string name="models_group_faces">Лица и люди</string>
+    <string name="models_group_faces_hq">Точное распознавание лиц (по желанию)</string>
     <string name="models_group_other">Прочее</string>
     <string name="models_banner">AI-функции не установлены</string>
     <string name="models_banner_action">Скачать</string>
@@ -221,6 +225,13 @@
     <string name="settings_section_indexing">Индексация</string>
     <string name="settings_smart_eps">Радиус группировки</string>
     <string name="settings_smart_eps_desc">Меньше — мелкие, более однородные группы. Больше — крупнее, но разные темы могут склеиться. Альбомы пересобираются после изменения.</string>
+    <string name="settings_face_model">Распознавание лиц</string>
+    <string name="settings_face_model_fast">Быстрое</string>
+    <string name="settings_face_model_fast_desc">13 МБ, ~25 мс на лицо. Хватает в большинстве случаев.</string>
+    <string name="settings_face_model_accurate">Точное</string>
+    <string name="settings_face_model_accurate_desc">174 МБ, ~230 мс на лицо. Заметно реже путает похожих людей. Дольше обрабатывает фото и сильнее греет телефон.</string>
+    <string name="settings_face_model_missing">Модель не установлена — скачайте её в разделе «AI-модели».</string>
+    <string name="settings_face_model_switch">При смене модели векторы лиц пересчитываются в фоне, люди пересобираются. Имена и ручные правки сохраняются.</string>
     <string name="settings_face_eps">Радиус группировки лиц</string>
     <string name="settings_face_eps_desc">Больше — смелее объединяет похожие лица в одного человека. Меньше — строже: один человек может разделиться на несколько. Имена сохраняются при пересчёте.</string>
     <string name="settings_reset_default">Сбросить по умолчанию</string>

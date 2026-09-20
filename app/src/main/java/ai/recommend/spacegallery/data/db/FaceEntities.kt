@@ -29,8 +29,12 @@ data class FaceEntity(
     val right: Float,
     val bottom: Float,
     val score: Float,
-    /** SFace, 128 float32 LE, L2-нормализован. */
+    /** Вектор лица (float32 LE, L2-нормализован); длина зависит от модели. */
     val embedding: ByteArray,
+    /** Версия модели, которой посчитан [embedding] (см. FaceEmbedder.EMBED_VERSION). */
+    @ColumnInfo(defaultValue = "1") val embedVersion: Int = 1,
+    /** 5 ключевых точек в долях кадра (x,y × 5, float32 LE) — выравнивание без повторного поиска. */
+    val landmarks: ByteArray? = null,
     /** Миниатюра лица для аватара (JPEG ~128 px); удаляется вместе со строкой. */
     val thumbnail: ByteArray,
     val personId: Long? = null,
@@ -104,14 +108,15 @@ data class PersonEntity(
 data class PersonRow(
     val id: Long,
     val name: String?,
-    val thumbnail: ByteArray?,
     val mediaCount: Int,
 )
 
 /** Лицо для кластеризации + данные для выбора обложки (качество, размер в оригинале). */
 data class FaceClusterRow(
     val id: Long,
+    val mediaId: Long,
     val embedding: ByteArray,
+    val embedVersion: Int,
     val personId: Long?,
     val lockedPersonId: Long?,
     val left: Float,
@@ -128,11 +133,18 @@ data class FaceClusterRow(
 data class PersonFaceRow(
     val personId: Long,
     val name: String?,
-    val avatar: ByteArray?,
     val left: Float,
     val top: Float,
     val right: Float,
     val bottom: Float,
+)
+
+/** Лицо с сохранёнными ключевыми точками — для пересчёта вектора без повторного поиска лиц. */
+data class FaceEmbedRow(
+    val id: Long,
+    val mediaId: Long,
+    val uri: String,
+    val landmarks: ByteArray,
 )
 
 /** Лицо с фото и человеком — для проверки срабатываний детектора. */
@@ -155,7 +167,7 @@ data class FaceBoxRow(val mediaId: Long, val left: Float, val top: Float, val ri
 data class FaceOnMediaRow(val id: Long, val thumbnail: ByteArray, val personId: Long?, val name: String?)
 
 /** Человек, отмеченный на фото вручную без рамки лица. */
-data class TaggedPersonRow(val personId: Long, val name: String?, val avatar: ByteArray?)
+data class TaggedPersonRow(val personId: Long, val name: String?)
 
 data class FaceOwner(val personId: Long?, val lockedPersonId: Long?)
 
@@ -187,8 +199,8 @@ interface FaceDao {
 
     // --- Артефакты («это не лицо») ---
 
-    @Query("SELECT embedding FROM face WHERE isArtifact = 1")
-    suspend fun getArtifactEmbeddings(): List<ByteArray>
+    @Query("SELECT embedding FROM face WHERE isArtifact = 1 AND embedVersion = :embedVersion")
+    suspend fun getArtifactEmbeddings(embedVersion: Int): List<ByteArray>
 
     @Query("UPDATE face SET isArtifact = 1, personId = NULL, lockedPersonId = NULL WHERE personId = :personId OR lockedPersonId = :personId")
     suspend fun markPersonAsArtifacts(personId: Long)
@@ -205,6 +217,9 @@ interface FaceDao {
         """
     )
     suspend fun getUnchecked(below: Float): List<FaceCheckRow>
+
+    @Query("SELECT COUNT(*) FROM face WHERE checked = 0 AND isArtifact = 0 AND score < :below AND lockedPersonId IS NULL")
+    suspend fun countUnchecked(below: Float): Int
 
     @Query("UPDATE face SET checked = 1 WHERE id IN (:faceIds)")
     suspend fun markChecked(faceIds: List<Long>)
@@ -259,7 +274,7 @@ interface FaceDao {
     suspend fun getDismissals(personId: Long): List<PersonPairDismissalEntity>
 
     /** Векторы лиц по людям — для подсказок «это тоже он?». */
-    @Query("SELECT id, embedding, personId, lockedPersonId, left, top, right, bottom, score, '' AS uri, 0 AS width, 0 AS height FROM face WHERE personId IS NOT NULL")
+    @Query("SELECT id, mediaId, embedding, embedVersion, personId, lockedPersonId, left, top, right, bottom, score, '' AS uri, 0 AS width, 0 AS height FROM face WHERE personId IS NOT NULL")
     suspend fun getAssignedFaces(): List<FaceClusterRow>
 
     @Query(
@@ -277,37 +292,102 @@ interface FaceDao {
     suspend fun deleteForMedia(mediaIds: List<Long>)
 
     @Insert
-    suspend fun insertFaces(faces: List<FaceEntity>)
+    suspend fun insertFaces(faces: List<FaceEntity>): List<Long>
+
+    @Query("SELECT * FROM face_rejection WHERE faceId IN (:faceIds)")
+    suspend fun getRejectionsFor(faceIds: List<Long>): List<FaceRejectionEntity>
 
     @Query("UPDATE media_analysis SET facesVersion = :version WHERE mediaId IN (:mediaIds)")
     suspend fun markDone(mediaIds: List<Long>, version: Int)
 
-    /** Результат поиска лиц для пачки фото: старые лица заменяются, фото помечаются обработанными. */
+    /**
+     * Результат поиска лиц для пачки фото: старые лица заменяются, фото помечаются обработанными.
+     * [rejections] — перенесённые «это не он» как (номер лица в [faces], человек): их строки
+     * удаляются вместе со старым лицом, поэтому создаются заново.
+     */
     @Transaction
-    suspend fun saveBatch(mediaIds: List<Long>, faces: List<FaceEntity>, version: Int) {
+    suspend fun saveBatch(
+        mediaIds: List<Long>,
+        faces: List<FaceEntity>,
+        version: Int,
+        rejections: List<Pair<Int, Long>> = emptyList(),
+    ) {
         deleteForMedia(mediaIds)
-        if (faces.isNotEmpty()) insertFaces(faces)
+        val ids = if (faces.isNotEmpty()) insertFaces(faces) else emptyList()
+        if (rejections.isNotEmpty()) {
+            insertRejections(
+                rejections.mapNotNull { (index, personId) -> ids.getOrNull(index)?.let { FaceRejectionEntity(it, personId) } }
+            )
+        }
         markDone(mediaIds, version)
     }
 
     @Query("SELECT COUNT(*) FROM face")
     suspend fun countFaces(): Int
 
+    // --- Пересчёт векторов при смене модели (лица не ищутся заново) ---
+
+    @Query("SELECT COUNT(*) FROM face WHERE embedVersion <> :version AND landmarks IS NOT NULL")
+    suspend fun countToReembed(version: Int): Int
+
+    @Query(
+        """
+        SELECT f.id, f.mediaId, m.uri, f.landmarks AS landmarks
+        FROM face f JOIN media m ON m.id = f.mediaId
+        WHERE f.embedVersion <> :version AND f.landmarks IS NOT NULL
+        ORDER BY f.mediaId
+        LIMIT :limit
+        """
+    )
+    suspend fun getToReembed(version: Int, limit: Int): List<FaceEmbedRow>
+
+    @Query("UPDATE face SET embedding = :embedding, embedVersion = :version WHERE id = :faceId")
+    suspend fun setEmbedding(faceId: Long, embedding: ByteArray, version: Int)
+
+    /** Лицо без ключевых точек пересчитать нельзя — помечаем, чтобы не выбирать его снова. */
+    @Query("UPDATE face SET embedVersion = :version WHERE id IN (:faceIds)")
+    suspend fun markEmbedVersion(faceIds: List<Long>, version: Int)
+
     // --- Люди ---
 
     /** Лица для кластеризации: только с видимых фото (не скрытых и не деликатных). */
     @Query(
         """
-        SELECT f.id, f.embedding, f.personId, f.lockedPersonId, f.left, f.top, f.right, f.bottom, f.score,
+        SELECT f.id, f.mediaId, f.embedding, f.embedVersion, f.personId, f.lockedPersonId, f.left, f.top, f.right, f.bottom, f.score,
                m.uri, m.width, m.height
         FROM face f
         JOIN media m ON m.id = f.mediaId
         LEFT JOIN media_analysis a ON a.mediaId = m.id
-        WHERE m.isHiddenByUser = 0 AND f.isArtifact = 0
+        WHERE m.isHiddenByUser = 0 AND f.isArtifact = 0 AND f.embedVersion = :embedVersion
           AND (NOT :hideSensitive OR a.sensitiveScore IS NULL OR a.sensitiveScore < :threshold)
         """
     )
-    suspend fun getForClustering(hideSensitive: Boolean, threshold: Float): List<FaceClusterRow>
+    suspend fun getForClustering(hideSensitive: Boolean, threshold: Float, embedVersion: Int): List<FaceClusterRow>
+
+    /**
+     * То же постранично: у 512-мерных векторов строка весит ~2 КБ, и вся выборка не помещается
+     * в окно курсора (особенно когда индексация параллельно пишет в базу).
+     */
+    @Query(
+        """
+        SELECT f.id, f.mediaId, f.embedding, f.embedVersion, f.personId, f.lockedPersonId, f.left, f.top, f.right, f.bottom, f.score,
+               m.uri, m.width, m.height
+        FROM face f
+        JOIN media m ON m.id = f.mediaId
+        LEFT JOIN media_analysis a ON a.mediaId = m.id
+        WHERE m.isHiddenByUser = 0 AND f.isArtifact = 0 AND f.embedVersion = :embedVersion AND f.id > :afterId
+          AND (NOT :hideSensitive OR a.sensitiveScore IS NULL OR a.sensitiveScore < :threshold)
+        ORDER BY f.id
+        LIMIT :limit
+        """
+    )
+    suspend fun getForClusteringPage(
+        hideSensitive: Boolean,
+        threshold: Float,
+        embedVersion: Int,
+        afterId: Long,
+        limit: Int,
+    ): List<FaceClusterRow>
 
     @Query("SELECT * FROM person")
     suspend fun getPersons(): List<PersonEntity>
@@ -325,8 +405,15 @@ interface FaceDao {
     @Insert
     suspend fun insertPerson(person: PersonEntity): Long
 
+    /** Создать или обновить человека: строку могли удалить, пока шёл пересчёт. */
+    @androidx.room.Upsert
+    suspend fun upsertPerson(person: PersonEntity)
+
     @Update
     suspend fun updatePersons(persons: List<PersonEntity>)
+
+    @Query("DELETE FROM person")
+    suspend fun deleteAllPersons()
 
     /** Люди, отмеченные на фото вручную (без лиц), при пересчёте групп не удаляются. */
     @Query("DELETE FROM person WHERE id NOT IN (:keepIds) AND id NOT IN (SELECT personId FROM media_person_tag)")
@@ -339,7 +426,6 @@ interface FaceDao {
     @Query(
         """
         SELECT p.id, p.name,
-               COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) AS thumbnail,
                (SELECT COUNT(*) FROM media m WHERE m.isHiddenByUser = 0 AND m.id IN
                 (SELECT mediaId FROM face WHERE personId = p.id UNION SELECT mediaId FROM media_person_tag WHERE personId = p.id)) AS mediaCount
         FROM person p
@@ -354,9 +440,7 @@ interface FaceDao {
     /** Люди на фото (только лица, отнесённые к человеку), слева направо по кадру. */
     @Query(
         """
-        SELECT f.personId, p.name,
-               COALESCE(p.avatar, (SELECT c.thumbnail FROM face c WHERE c.id = p.coverFaceId)) AS avatar,
-               f.left, f.top, f.right, f.bottom
+        SELECT f.personId, p.name, f.left, f.top, f.right, f.bottom
         FROM face f JOIN person p ON p.id = f.personId
         WHERE f.mediaId = :mediaId
         ORDER BY f.left
@@ -367,13 +451,16 @@ interface FaceDao {
     @Query(
         """
         SELECT p.id, p.name,
-               COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) AS thumbnail,
                (SELECT COUNT(*) FROM media m WHERE m.isHiddenByUser = 0 AND m.id IN
                 (SELECT mediaId FROM face WHERE personId = p.id UNION SELECT mediaId FROM media_person_tag WHERE personId = p.id)) AS mediaCount
         FROM person p
         """
     )
     suspend fun getPersonRows(): List<PersonRow>
+
+    /** Аватар одного человека: запрашивается для видимых строк, а не для всего списка сразу. */
+    @Query("SELECT COALESCE(p.avatar, (SELECT f.thumbnail FROM face f WHERE f.id = p.coverFaceId)) FROM person p WHERE p.id = :personId")
+    suspend fun getPersonAvatar(personId: Long): ByteArray?
 
     // --- Ручная отметка на фото ---
 
@@ -390,8 +477,7 @@ interface FaceDao {
 
     @Query(
         """
-        SELECT t.personId, p.name,
-               COALESCE(p.avatar, (SELECT c.thumbnail FROM face c WHERE c.id = p.coverFaceId)) AS avatar
+        SELECT t.personId, p.name
         FROM media_person_tag t JOIN person p ON p.id = t.personId
         WHERE t.mediaId = :mediaId
         """

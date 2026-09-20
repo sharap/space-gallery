@@ -32,6 +32,20 @@ class PeopleBuilder(
 ) {
     private val dao = db.faceDao()
     private val mutex = Mutex()
+
+    /**
+     * Счётчик ручных правок. Пересчёт длится десятки секунд, и правки, сделанные за это время,
+     * затирались его результатом (он читает лица в начале). Теперь такой результат не
+     * записывается, а пересчёт повторяется на свежих данных.
+     */
+    private val edits = java.util.concurrent.atomic.AtomicLong()
+
+    /** Ждёт ли своей очереди ещё один пересчёт: подряд идущие правки не копят очередь. */
+    private val queued = java.util.concurrent.atomic.AtomicBoolean()
+
+    fun onUserEdit() {
+        edits.incrementAndGet()
+    }
     private val _isRebuilding = MutableStateFlow(false)
     val isRebuilding: StateFlow<Boolean> = _isRebuilding.asStateFlow()
 
@@ -46,36 +60,45 @@ class PeopleBuilder(
             settings.peopleAlgorithmVersion() < ALGORITHM_VERSION
     }
 
-    suspend fun rebuild() = mutex.withLock {
-        _isRebuilding.value = true
-        try {
-            rebuildLocked()
-        } finally {
-            _isRebuilding.value = false
+    suspend fun rebuild() {
+        // Пока один пересчёт идёт, а другой уже ждёт, третий не нужен: данные он прочитает те же.
+        if (!queued.compareAndSet(false, true)) return
+        mutex.withLock {
+            queued.set(false)
+            _isRebuilding.value = true
+            try {
+                var attempt = 0
+                while (true) {
+                    val version = edits.get()
+                    if (rebuildLocked(version) || ++attempt >= MAX_ATTEMPTS) break
+                    Log.i(TAG, "Правки во время пересчёта — считаем заново (попытка $attempt)")
+                }
+            } finally {
+                _isRebuilding.value = false
+            }
         }
     }
 
-    private suspend fun rebuildLocked() {
+    /** @return false, если во время пересчёта были правки и результат не записан. */
+    private suspend fun rebuildLocked(version: Long): Boolean {
         val s = settings.current()
-        val faces = dao.getForClustering(s.hideSensitive, s.sensitiveThreshold)
+        // Только лица текущей модели: при её смене остальные ждут пересчёта вектора.
+        val faces = loadFaces(s.hideSensitive, s.sensitiveThreshold, s.faceModel.embedVersion)
         val oldPersons = dao.getPersons().associateBy { it.id }
         if (faces.size < MIN_PTS) {
             db.withTransaction {
                 dao.clearAssignments()
                 dao.deletePersonsExcept(listOf(-1L))
             }
-            return
+            return true
         }
         val dim = faces.first().embedding.size / 4
-        // Плотная матрица сходства n² — при очень больших медиатеках кластеризуем самые чёткие
-        // лица, остальные привязываем к ближайшему человеку по строгому порогу.
         // Лица, похожие на помеченные пользователем артефакты («это не лицо»), в людей не попадают
         // (кроме подтверждённых самим пользователем).
-        val artifacts = dao.getArtifactEmbeddings().filter { it.size == dim * 4 }.map { VectorMath.fromBytes(it) }
+        val artifacts = dao.getArtifactEmbeddings(s.faceModel.embedVersion).filter { it.size == dim * 4 }.map { VectorMath.fromBytes(it) }
         val looksLikeArtifact = { row: FaceClusterRow ->
             row.lockedPersonId == null && artifacts.isNotEmpty() && artifactSimilarity(VectorMath.fromBytes(row.embedding), artifacts) >= ARTIFACT_SIMILARITY
         }
-        // Подтверждённые лица — первыми: они всегда попадают в плотную часть кластеризации.
         val valid = faces.filter { it.embedding.size == dim * 4 && !looksLikeArtifact(it) }
             .sortedWith(compareBy<FaceClusterRow> { it.lockedPersonId == null }.thenByDescending { it.pixelSize() * it.score })
         val n = valid.size
@@ -83,31 +106,34 @@ class PeopleBuilder(
         valid.forEachIndexed { i, row -> VectorMath.fromBytes(row.embedding).copyInto(vectors, i * dim) }
 
         val minSimilarity = 1f - s.faceEps
-        val core = minOf(n, MAX_DENSE_FACES)
 
         // Ручные правки как ограничения: подтверждённые лица — заранее вместе, «это не он» — запрет.
         val anchorOf = valid.map { it.lockedPersonId }
-        val anchors = IntArray(core) { i -> anchorOf[i]?.toInt() ?: -1 }
+        val anchors = IntArray(n) { i -> anchorOf[i]?.toInt() ?: -1 }
         val indexOfFace = valid.withIndex().associate { (i, f) -> f.id to i }
         val rejected = dao.getRejections().groupBy({ it.personId }) { it.faceId }
-        val lockedIndices = (0 until core).filter { anchorOf[it] != null }.groupBy { anchorOf[it]!! }
-        val cannotLink = rejected.flatMap { (personId, faceIds) ->
-            val anchorsOfPerson = lockedIndices[personId].orEmpty()
-            faceIds.mapNotNull { indexOfFace[it] }.filter { it < core }.flatMap { f -> anchorsOfPerson.map { f to it } }
+        val rejectedPersons = HashMap<Int, MutableSet<Int>>()
+        for ((personId, faceIds) in rejected) {
+            for (faceId in faceIds) {
+                val index = indexOfFace[faceId] ?: continue
+                rejectedPersons.getOrPut(index) { HashSet() } += personId.toInt()
+            }
+        }
+        // Коллаж: на снимке есть почти одинаковые лица (один человек на разных кадрах). Правило
+        // «два лица с одного снимка — разные люди» там неверно, поэтому снимок из него исключаем:
+        // даём каждому его лицу свой «снимок», чтобы пары не штрафовались.
+        val mediaOf = LongArray(n) { valid[it].mediaId }
+        val collages = collageMedia(valid, vectors, dim)
+        if (collages.isNotEmpty()) {
+            for (i in 0 until n) if (mediaOf[i] in collages) mediaOf[i] = -(i + 1).toLong()
+            Log.i(TAG, "Коллажей (снимки с повторяющимися лицами): ${collages.size}")
         }
 
-        val coreLabels = averageLinkage(vectors, core, dim, minSimilarity, anchors, cannotLink)
-        val clusters = (0 until core).groupBy { coreLabels[it] }.values
+        val labels = sparseAverageLinkage(vectors, n, dim, minSimilarity, mediaOf, anchors, rejectedPersons)
+        val clusters = (0 until n).groupBy { labels[it] }.values
             // Подтверждённый человек остаётся, даже если у него меньше MIN_PTS лиц.
             .filter { members -> members.size >= MIN_PTS || members.any { anchorOf[it] != null } }
             .mapTo(ArrayList()) { it.toMutableList() }
-        if (core < n) {
-            attachRemaining(clusters, core until n, vectors, dim, minSimilarity + ATTACH_MARGIN) { face, cluster ->
-                // Лицо «это не он» не привязываем к этому человеку.
-                val person = cluster.firstNotNullOfOrNull { anchorOf[it] }
-                person == null || valid[face].id !in rejected[person].orEmpty()
-            }
-        }
         knnReassign(clusters, valid, anchorOf, vectors, dim, rejected)
         clusters.removeAll { members -> members.size < MIN_PTS && members.none { anchorOf[it] != null } }
         clusters.sortByDescending { it.size }
@@ -121,7 +147,14 @@ class PeopleBuilder(
                 ?: avatars.render(cover.uri.toUri(), cover.left, cover.top, cover.right, cover.bottom)
         }
 
+        var applied = true
         db.withTransaction {
+            // Правка пользователя во время пересчёта делает результат устаревшим: он бы вернул
+            // фото на прежние места. Ничего не пишем — пересчёт повторится на свежих данных.
+            if (edits.get() != version) {
+                applied = false
+                return@withTransaction
+            }
             dao.clearAssignments()
             // Подтверждённые люди закреплены за своими группами — их не может «унаследовать» другая.
             val used = clusters.mapNotNullTo(HashSet()) { members -> members.firstNotNullOfOrNull { anchorOf[it] } }
@@ -137,7 +170,9 @@ class PeopleBuilder(
                     .filter { (id, count) -> id !in used && count >= members.size * INHERIT_FRACTION }
                     .maxByOrNull { it.value }?.key
                 val person = if (previous != null && previous in oldPersons) {
+                    // Строку могли удалить, пока шёл пересчёт (сброс людей) — создаём заново.
                     oldPersons.getValue(previous).copy(coverFaceId = cover, position = position, avatar = avatar, avatarFaceId = cover)
+                        .also { dao.upsertPerson(it) }
                 } else {
                     // Подтверждённый человек, которого нет в таблице, восстанавливается с тем же id.
                     val fresh = PersonEntity(id = anchored ?: 0, coverFaceId = cover, position = position, avatar = avatar, avatarFaceId = cover)
@@ -145,13 +180,16 @@ class PeopleBuilder(
                 }
                 used += person.id
                 result += person
+                // Лица привязываются только после того, как строка человека точно есть в базе.
                 faceIds.chunked(900).forEach { dao.assign(it, person.id) }
             }
             dao.updatePersons(result)
             dao.deletePersonsExcept(result.map { it.id }.ifEmpty { listOf(-1L) })
         }
+        if (!applied) return false
         settings.setPeopleAlgorithmVersion(ALGORITHM_VERSION)
         Log.i(TAG, "Люди: ${clusters.size} из $n лиц, в группах ${clusters.sumOf { it.size }}")
+        return true
     }
 
     /**
@@ -201,29 +239,44 @@ class PeopleBuilder(
         Log.i(TAG, "k-NN самопроверка на подтверждённых лицах: верно $correct, к другому $wrong, не привязано $none")
     }
 
+    /** Лица для группировки читаются страницами: одной выборкой 13 тысяч строк курсор не тянет. */
+    private suspend fun loadFaces(hideSensitive: Boolean, threshold: Float, embedVersion: Int): List<FaceClusterRow> {
+        val all = ArrayList<FaceClusterRow>()
+        var afterId = 0L
+        while (true) {
+            val page = dao.getForClusteringPage(hideSensitive, threshold, embedVersion, afterId, FACE_PAGE)
+            if (page.isEmpty()) break
+            all += page
+            afterId = page.last().id
+        }
+        return all
+    }
+
+    /**
+     * Снимки, где два лица почти одинаковы: коллажи, фото фотографий, отражения. На реальной
+     * медиатеке (13 250 лиц, 2026-09-20) таких снимков 50 — 236 пар, из них ни одной с
+     * пересечением рамок, то есть это не двойные срабатывания детектора.
+     */
+    private fun collageMedia(valid: List<FaceClusterRow>, vectors: FloatArray, dim: Int): Set<Long> {
+        val result = HashSet<Long>()
+        val byMedia = valid.indices.groupBy { valid[it].mediaId }
+        for ((mediaId, faces) in byMedia) {
+            if (faces.size < 2) continue
+            outer@ for (a in faces.indices) {
+                for (b in a + 1 until faces.size) {
+                    if (VectorMath.dot(vectors, faces[a] * dim, vectors, faces[b] * dim, dim) >= COLLAGE_SIMILARITY) {
+                        result += mediaId
+                        break@outer
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     /** Среднее сходство лица с [KNN_K] самыми похожими помеченными артефактами. */
     private fun artifactSimilarity(face: FloatArray, artifacts: List<FloatArray>): Float =
         artifacts.map { VectorMath.dot(face, it) }.sortedDescending().take(KNN_K).average().toFloat()
-
-    /** Лица сверх [MAX_DENSE_FACES] — к человеку с самым похожим центром, если сходство ≥ [threshold]. */
-    private fun attachRemaining(
-        clusters: List<MutableList<Int>>,
-        rest: IntRange,
-        vectors: FloatArray,
-        dim: Int,
-        threshold: Float,
-        allowed: (face: Int, cluster: List<Int>) -> Boolean,
-    ) {
-        val centroids = clusters.map { members ->
-            VectorMath.l2Normalize(FloatArray(dim) { k -> members.sumOf { vectors[it * dim + k].toDouble() }.toFloat() })
-        }
-        for (i in rest) {
-            val face = vectors.copyOfRange(i * dim, (i + 1) * dim)
-            val best = centroids.indices.filter { allowed(i, clusters[it]) }
-                .maxByOrNull { VectorMath.dot(face, centroids[it]) } ?: continue
-            if (VectorMath.dot(face, centroids[best]) >= threshold) clusters[best] += i
-        }
-    }
 
     /**
      * Обложка человека: из более типичной половины лиц группы (чтобы это точно был он) —
@@ -254,21 +307,23 @@ class PeopleBuilder(
 
         /**
          * 1 — DBSCAN, 2 — средняя связь, 3 — + k-NN к подтверждённым, 4–5 — образцы k-NN только
-         * из основной части подтверждённой группы. Увеличить при смене — люди пересоберутся.
+         * из основной части подтверждённой группы, 6 — все лица участвуют в группировке
+         * (без предела в 3000) и штраф за пару лиц с одного снимка.
+         * Увеличить при смене — люди пересоберутся.
          */
-        const val ALGORITHM_VERSION = 5
+        const val ALGORITHM_VERSION = 6
         const val EDGE = 0.01f
-
-        /** Матрица 3000² float — 36 МБ; дальше — привязка к готовым группам. */
-        const val MAX_DENSE_FACES = 3000
-        /** Привязка без участия в кластеризации — строже, чем сама группировка. */
-        const val ATTACH_MARGIN = 0.1f
 
         /**
          * Похоже на помеченные артефакты (k-NN ≥ 0.5) — не лицо. На разметке пользователя:
          * отсекает 24/39 артефактов, теряет 1/710 настоящих лиц.
          */
         const val ARTIFACT_SIMILARITY = 0.5f
+        /** Почти одинаковые лица на одном снимке — это коллаж, а не двое разных людей. */
+        const val COLLAGE_SIMILARITY = 0.8f
+        /** Сколько раз повторять пересчёт, если пользователь продолжает править. */
+        const val MAX_ATTEMPTS = 5
+        const val FACE_PAGE = 2000
         const val MIN_PTS = 3
         /** Группа наследует прежнего человека, если к нему относилось ≥ 40% её лиц. */
         const val INHERIT_FRACTION = 0.4

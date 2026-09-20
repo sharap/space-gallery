@@ -1,9 +1,11 @@
 package ai.recommend.spacegallery.data.settings
 
+import ai.recommend.spacegallery.ml.onnx.ModelId
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -26,11 +28,13 @@ data class GallerySettings(
     val albumGridColumns: Int = 4,
     /** Радиус DBSCAN для умных альбомов (косинусное расстояние), см. [SMART_ALBUM_EPS_RANGE]. */
     val smartAlbumEps: Float = DEFAULT_SMART_ALBUM_EPS,
+    /** Какой моделью считаются векторы лиц (у каждой свой радиус группировки). */
+    val faceModel: FaceModel = FaceModel.FAST,
     /**
      * Радиус группировки лиц в людей: 1 − минимальное **среднее** сходство лиц двух групп
-     * для объединения (средняя связь), см. [FACE_EPS_RANGE].
+     * для объединения (средняя связь), см. [FaceModel.epsRange]. Своё значение у каждой модели.
      */
-    val faceEps: Float = DEFAULT_FACE_EPS,
+    val faceEps: Float = FaceModel.FAST.defaultEps,
     /** Скачивать AI-модели только по Wi-Fi (сотни мегабайт). */
     val modelsWifiOnly: Boolean = true,
 ) {
@@ -48,12 +52,35 @@ const val DEFAULT_SMART_ALBUM_EPS = 0.14f
  */
 val SMART_ALBUM_EPS_RANGE = 0.08f..0.20f
 
+/** Радиус группировки лиц у каждой модели свой — см. [FaceModel]. */
+const val DEFAULT_FACE_EPS = 0.70f
+
 /**
- * Лица SFace, средняя связь: объединять группы при среднем сходстве ≥ 0.35 (радиус 0.65) —
- * около порога SFace «тот же человек» (0.363). Подобрано на реальной медиатеке.
+ * Модель распознавания лиц. Векторы разных моделей несравнимы, поэтому у каждой свой номер
+ * версии (лица пересчитываются при смене) и свой радиус группировки.
+ *
+ * Замеры на реальной медиатеке (448 лиц, 2026-09-20): при пороге, отсекающем 99% пар
+ * «разные люди», [FAST] теряет 5% пар «тот же человек», [ACCURATE] — 1%.
  */
-const val DEFAULT_FACE_EPS = 0.65f
-val FACE_EPS_RANGE = 0.50f..0.75f
+enum class FaceModel(
+    val modelId: ModelId,
+    val embedVersion: Int,
+    val defaultEps: Float,
+    val epsRange: ClosedFloatingPointRange<Float>,
+) {
+    /** MobileFaceNet, 13,6 МБ, ~25 мс на лицо. */
+    FAST(ModelId.FACE_EMBED, embedVersion = 4, defaultEps = 0.65f, epsRange = 0.50f..0.80f),
+
+    /**
+     * ResNet50, 174 МБ, ~230 мс на лицо. Версия 2 — ею помечены векторы, посчитанные этой же
+     * моделью до появления выбора: при обновлении их не нужно считать заново.
+     *
+     * Радиус 0.70 (сходство 0.30) подобран на разметке пользователя (1977 подтверждённых лиц у
+     * 24 человек, 2026-09-20): полнота 0.98 при нуле ошибочных склеек между названными людьми;
+     * прежний 0.60 (от SFace) терял 15% пар одного человека.
+     */
+    ACCURATE(ModelId.FACE_EMBED_HQ, embedVersion = 2, defaultEps = 0.70f, epsRange = 0.55f..0.85f),
+}
 
 /** Какая сетка: у фото и у альбомов масштаб независимый. */
 enum class GridKind { MEDIA, ALBUMS }
@@ -61,12 +88,16 @@ enum class GridKind { MEDIA, ALBUMS }
 /** Допустимые размеры сетки — шаги щипка. */
 val GRID_COLUMN_LEVELS = listOf(2, 3, 4, 5, 7)
 
+private fun epsKeyOf(model: FaceModel) =
+    if (model == FaceModel.FAST) floatPreferencesKey("face_link_eps") else floatPreferencesKey("face_link_eps_hq")
+
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 class SettingsRepository(private val context: Context) {
 
     val settings: Flow<GallerySettings> = context.dataStore.data.map { p ->
         val d = GallerySettings()
+        val model = p[FACE_MODEL]?.let { name -> FaceModel.entries.firstOrNull { it.name == name } } ?: d.faceModel
         GallerySettings(
             hideSensitive = p[HIDE_SENSITIVE] ?: d.hideSensitive,
             sensitiveThreshold = p[SENSITIVE_THRESHOLD] ?: d.sensitiveThreshold,
@@ -78,7 +109,8 @@ class SettingsRepository(private val context: Context) {
                 ?: p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS }
                 ?: d.albumGridColumns,
             smartAlbumEps = p[SMART_EPS]?.coerceIn(SMART_ALBUM_EPS_RANGE) ?: d.smartAlbumEps,
-            faceEps = p[FACE_EPS]?.coerceIn(FACE_EPS_RANGE) ?: d.faceEps,
+            faceModel = model,
+            faceEps = p[epsKeyOf(model)]?.coerceIn(model.epsRange) ?: model.defaultEps,
             modelsWifiOnly = p[MODELS_WIFI_ONLY] ?: d.modelsWifiOnly,
         )
     }
@@ -90,7 +122,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setModelsWifiOnly(value: Boolean) = context.dataStore.edit { it[MODELS_WIFI_ONLY] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
-    suspend fun setFaceEps(value: Float) = context.dataStore.edit { it[FACE_EPS] = value.coerceIn(FACE_EPS_RANGE) }
+    /** Радиус хранится отдельно для каждой модели: их шкалы сходства не совпадают. */
+    suspend fun setFaceEps(value: Float) = context.dataStore.edit {
+        val model = it[FACE_MODEL]?.let { name -> FaceModel.entries.firstOrNull { m -> m.name == name } } ?: FaceModel.FAST
+        it[epsKeyOf(model)] = value.coerceIn(model.epsRange)
+    }
+
+    /** Смена модели: лица будут пересчитаны новой моделью (FaceReembedder), люди пересобраны. */
+    suspend fun setFaceModel(model: FaceModel) = context.dataStore.edit { it[FACE_MODEL] = model.name }
     suspend fun setSmartAlbumEps(value: Float) = context.dataStore.edit { it[SMART_EPS] = value.coerceIn(SMART_ALBUM_EPS_RANGE) }
     suspend fun setGridColumns(kind: GridKind, value: Int) = context.dataStore.edit {
         it[if (kind == GridKind.MEDIA) GRID_COLUMNS else ALBUM_GRID_COLUMNS] = value
@@ -123,6 +162,7 @@ class SettingsRepository(private val context: Context) {
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
         val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
+        val FACE_MODEL = stringPreferencesKey("face_model")
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
         val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
         val SMART_EPS = floatPreferencesKey("smart_albums_eps")

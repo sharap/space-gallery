@@ -35,8 +35,14 @@ enum class ModelId(val fileName: String) {
      */
     FACE_DETECT("face_detect.onnx"),
 
-    /** Распознавание лиц SFace (OpenCV Zoo, Apache 2.0): data [1,3,112,112] RGB 0..255 -> fc1 [1,128]. */
+    /**
+     * Быстрое распознавание лиц: ArcFace MobileFaceNet (insightface buffalo_s, MIT),
+     * [1,3,112,112] RGB, (x − 127.5) / 127.5 -> [1,512]. 13,6 МБ, ~25 мс на лицо.
+     */
     FACE_EMBED("face_embed.onnx"),
+
+    /** Точное распознавание: ArcFace ResNet50 (insightface buffalo_l, MIT). 174 МБ, ~230 мс. */
+    FACE_EMBED_HQ("face_embed_hq.onnx"),
 }
 
 data class ImageInputSpec(

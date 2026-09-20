@@ -3,9 +3,8 @@ package ai.recommend.spacegallery.ui.settings
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
-import ai.recommend.spacegallery.data.settings.DEFAULT_FACE_EPS
 import ai.recommend.spacegallery.data.settings.DEFAULT_SMART_ALBUM_EPS
-import ai.recommend.spacegallery.data.settings.FACE_EPS_RANGE
+import ai.recommend.spacegallery.data.settings.FaceModel
 import ai.recommend.spacegallery.data.settings.SMART_ALBUM_EPS_RANGE
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +50,7 @@ fun SettingsScreen(
         factory = appViewModelFactory { c, _ ->
             SettingsViewModel(
                 c.settings,
+                c.models,
                 c.indexingScheduler,
                 c.database.analysisDao(),
                 c.embeddingIndex,
@@ -109,21 +110,64 @@ fun SettingsScreen(
             HorizontalDivider()
             SectionHeader(stringResource(R.string.people_title))
             val rebuildingPeople by viewModel.isRebuildingPeople.collectAsStateWithLifecycle()
+            Text(
+                stringResource(R.string.settings_face_model),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp),
+            )
+            FaceModel.entries.forEach { model ->
+                val available = viewModel.isModelAvailable(model)
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(if (model == FaceModel.FAST) R.string.settings_face_model_fast else R.string.settings_face_model_accurate))
+                    },
+                    supportingContent = {
+                        Text(
+                            stringResource(if (model == FaceModel.FAST) R.string.settings_face_model_fast_desc else R.string.settings_face_model_accurate_desc) +
+                                if (available) "" else "\n" + stringResource(R.string.settings_face_model_missing)
+                        )
+                    },
+                    trailingContent = {
+                        RadioButton(selected = s.faceModel == model, onClick = { viewModel.setFaceModel(model) }, enabled = available)
+                    },
+                    modifier = Modifier.clickable(enabled = available) { viewModel.setFaceModel(model) },
+                )
+            }
             SliderSetting(
                 title = stringResource(R.string.settings_face_eps),
                 value = s.faceEps,
-                range = FACE_EPS_RANGE,
-                steps = 24, // шаг 0.01
+                range = s.faceModel.epsRange,
+                steps = ((s.faceModel.epsRange.endInclusive - s.faceModel.epsRange.start) * 100).toInt() - 1, // шаг 0.01
                 format = { String.format(Locale.getDefault(), "%.2f", it) },
                 description = stringResource(R.string.settings_face_eps_desc),
                 trailing = { if (rebuildingPeople) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
                 onChange = viewModel::setFaceEps,
             )
             TextButton(
-                onClick = { viewModel.setFaceEps(DEFAULT_FACE_EPS) },
-                enabled = abs(s.faceEps - DEFAULT_FACE_EPS) > 0.001f,
+                onClick = { viewModel.setFaceEps(s.faceModel.defaultEps) },
+                enabled = abs(s.faceEps - s.faceModel.defaultEps) > 0.001f,
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) { Text(stringResource(R.string.settings_reset_default)) }
+            var confirmFullReset by remember { mutableStateOf(false) }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_reset_people_all)) },
+                supportingContent = { Text(stringResource(R.string.settings_reset_people_all_desc)) },
+                modifier = Modifier.clickable { confirmFullReset = true },
+            )
+            if (confirmFullReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmFullReset = false },
+                    title = { Text(stringResource(R.string.settings_reset_people_all)) },
+                    text = { Text(stringResource(R.string.settings_reset_people_all_confirm)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmFullReset = false
+                            viewModel.resetPeopleCompletely()
+                        }) { Text(stringResource(R.string.action_reset)) }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmFullReset = false }) { Text(stringResource(R.string.action_cancel)) } },
+                )
+            }
             var confirmReset by remember { mutableStateOf(false) }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_reset_people_edits)) },

@@ -67,14 +67,19 @@ class ModelProvider(
         runCatching { context.assets.list(MODELS_DIR)?.contains(id.fileName) == true }.getOrDefault(false)
 
     /**
-     * Скачанная модель используется как есть. Модель из assets (только debug) один раз копируется
-     * во внутреннее хранилище: ORT создаёт сессию из файла.
-     * TODO: загрузчик моделей для релиза (WorkManager + проверка SHA-256) пишет в [userModelFile].
+     * Скачанная модель используется как есть. Модель из assets (только debug) копируется во
+     * внутреннее хранилище: ORT создаёт сессию из файла. Копия обновляется, если модель в assets
+     * заменили (иначе после смены модели приложение продолжило бы считать старой).
      */
     private fun resolveFile(id: ModelId): File? {
         userModelFile(id).takeIf { it.exists() }?.let { return it }
         if (!assetExists(id)) return null
         val cached = File(File(context.noBackupFilesDir, MODELS_DIR), id.fileName)
+        val assetLength = runCatching { context.assets.openFd("$MODELS_DIR/${id.fileName}").use { it.length } }.getOrNull()
+        if (cached.exists() && assetLength != null && cached.length() != assetLength) {
+            Log.i(TAG, "Модель ${id.fileName} в assets изменилась — обновляем копию")
+            cached.delete()
+        }
         if (!cached.exists()) {
             cached.parentFile?.mkdirs()
             val tmp = File(cached.path + ".tmp")

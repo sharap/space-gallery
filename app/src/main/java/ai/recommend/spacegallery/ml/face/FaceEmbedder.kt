@@ -1,8 +1,8 @@
 package ai.recommend.spacegallery.ml.face
 
 import ai.onnxruntime.OnnxTensor
+import ai.recommend.spacegallery.data.settings.FaceModel
 import ai.recommend.spacegallery.ml.VectorMath
-import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.ml.onnx.floatOutput
 import android.graphics.Bitmap
@@ -13,16 +13,21 @@ import androidx.core.graphics.createBitmap
 import java.nio.FloatBuffer
 
 /**
- * Вектор лица SFace (128 чисел, L2-нормализованный). Лицо выравнивается по 5 точкам
- * преобразованием подобия на шаблон ArcFace 112×112 — как FaceRecognizerSF::alignCrop
- * (сверено с OpenCV: совпадение векторов 1.0 при одинаковых точках).
+ * Вектор лица ArcFace (512 чисел, L2-нормализованный): вход 112×112 RGB, (x − 127.5) / 127.5,
+ * NCHW. Модель выбирает пользователь ([FaceModel]): MobileFaceNet (быстро) или ResNet50 (точно) —
+ * предобработка у них одинаковая, различаются размер и скорость. Лицо выравнивается по 5 точкам преобразованием подобия на шаблон ArcFace 112×112 —
+ * как FaceRecognizerSF::alignCrop (сверено с OpenCV: совпадение векторов 1.0 при тех же точках).
+ *
+ * Замена SFace (128 чисел) на buffalo_l r50 проверена на реальной медиатеке (448 лиц,
+ * 2026-09-20): при пороге, отсекающем 99% пар «разные люди», теряется 1% пар «тот же человек»
+ * вместо 7% у SFace. Цена — 231 мс на лицо вместо 41 и 174 МБ модели.
  */
 class FaceEmbedder(private val models: ModelProvider) {
 
-    val isAvailable: Boolean get() = models.isAvailable(ModelId.FACE_EMBED)
+    fun isAvailable(model: FaceModel): Boolean = models.isAvailable(model.modelId)
 
-    suspend fun embed(bitmap: Bitmap, face: DetectedFace): FloatArray? {
-        val session = models.session(ModelId.FACE_EMBED) ?: return null
+    suspend fun embed(bitmap: Bitmap, face: DetectedFace, model: FaceModel): FloatArray? {
+        val session = models.session(model.modelId) ?: return null
         val aligned = alignCrop(bitmap, face.landmarks)
         val input = rgbTensor(aligned)
         aligned.recycle()
@@ -30,6 +35,9 @@ class FaceEmbedder(private val models: ModelProvider) {
             session.run(mapOf(session.inputNames.first() to tensor)).use { VectorMath.l2Normalize(it.floatOutput()) }
         }
     }
+
+    /** Выровненный кроп лица — для отладочного сравнения моделей (bench/FaceModelDiagnostics). */
+    fun alignForDiagnostics(bitmap: Bitmap, landmarks: FloatArray): Bitmap = alignCrop(bitmap, landmarks)
 
     private fun alignCrop(bitmap: Bitmap, landmarks: FloatArray): Bitmap {
         val out = createBitmap(SIZE, SIZE)
@@ -44,15 +52,18 @@ class FaceEmbedder(private val models: ModelProvider) {
         val buffer = FloatBuffer.allocate(3 * plane)
         for (i in 0 until plane) {
             val p = pixels[i]
-            buffer.put(i, ((p shr 16) and 0xFF).toFloat()) // R
-            buffer.put(plane + i, ((p shr 8) and 0xFF).toFloat()) // G
-            buffer.put(2 * plane + i, (p and 0xFF).toFloat()) // B
+            buffer.put(i, (((p shr 16) and 0xFF) - MEAN) / STD) // R
+            buffer.put(plane + i, (((p shr 8) and 0xFF) - MEAN) / STD) // G
+            buffer.put(2 * plane + i, ((p and 0xFF) - MEAN) / STD) // B
         }
         return buffer
     }
 
     companion object {
         private const val SIZE = 112
+        private const val MEAN = 127.5f
+        private const val STD = 127.5f
+
 
         /** Шаблон ArcFace для 112×112: глаза, нос, углы рта. */
         private val TEMPLATE = floatArrayOf(

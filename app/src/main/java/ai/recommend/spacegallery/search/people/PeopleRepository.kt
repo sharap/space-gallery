@@ -31,7 +31,8 @@ class FaceOnPhoto(val id: Long, val thumbnail: ByteArray, val personId: Long?, v
 class PhotoTags(val faces: List<FaceOnPhoto>, val taggedPeople: List<Person>)
 
 /** Человек на экране: имя (если задано), аватар — миниатюра типичного лица, число фото. */
-class Person(val id: Long, val name: String?, val avatar: ByteArray?, val mediaCount: Int)
+/** Аватар не хранится в объекте: он грузится для видимых строк через [PeopleRepository.avatarOf]. */
+class Person(val id: Long, val name: String?, val mediaCount: Int)
 
 class PeopleRepository(
     private val db: AppDatabase,
@@ -45,10 +46,27 @@ class PeopleRepository(
     val isRebuilding: StateFlow<Boolean> = builder.isRebuilding
     /** Люди, у которых остались видимые фото; сначала названные, дальше по числу фото. */
     fun observePeople(): Flow<List<Person>> = dao.observePersons().map { rows ->
-        rows.filter { it.mediaCount > 0 }.map { Person(it.id, it.name, it.thumbnail, it.mediaCount) }
+        rows.filter { it.mediaCount > 0 }.map { Person(it.id, it.name, it.mediaCount) }
     }
 
     fun observeName(personId: Long): Flow<String?> = dao.observeName(personId)
+
+    /**
+     * Аватар человека (JPEG). Список людей их не тянет: при сотнях людей блобы не помещались
+     * в окно курсора и экран падал. Небольшой кеш — чтобы прокрутка не дёргала базу.
+     */
+    suspend fun avatarOf(personId: Long): ByteArray? {
+        avatars[personId]?.let { return it.value }
+        val avatar = dao.getPersonAvatar(personId)
+        avatars[personId] = Avatar(avatar)
+        return avatar
+    }
+
+    private class Avatar(val value: ByteArray?)
+
+    private val avatars = object : LinkedHashMap<Long, Avatar>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Avatar>) = size > AVATAR_CACHE
+    }
 
     fun observeMedia(personId: Long): Flow<List<MediaItem>> = media.observePersonMedia(personId)
 
@@ -58,13 +76,13 @@ class PeopleRepository(
             val recognized = rows.groupBy { it.personId }.map { (personId, faces) ->
                 val first = faces.first()
                 PersonOnPhoto(
-                    person = Person(personId, first.name, first.avatar, mediaCount = 0),
+                    person = Person(personId, first.name, mediaCount = 0),
                     boxes = faces.map { FaceBox(it.left, it.top, it.right, it.bottom) },
                 )
             }
             val ids = recognized.mapTo(HashSet()) { it.person.id }
             recognized + tagged.filter { it.personId !in ids }.map {
-                PersonOnPhoto(Person(it.personId, it.name, it.avatar, mediaCount = 0), boxes = emptyList())
+                PersonOnPhoto(Person(it.personId, it.name, mediaCount = 0), boxes = emptyList())
             }
         }
 
@@ -73,7 +91,7 @@ class PeopleRepository(
         combine(dao.observeFacesOnMedia(mediaId), dao.observeTaggedOnMedia(mediaId)) { faces, tagged ->
             PhotoTags(
                 faces = faces.map { FaceOnPhoto(it.id, it.thumbnail, it.personId, it.name) },
-                taggedPeople = tagged.map { Person(it.personId, it.name, it.avatar, mediaCount = 0) },
+                taggedPeople = tagged.map { Person(it.personId, it.name, mediaCount = 0) },
             )
         }
 
@@ -86,6 +104,7 @@ class PeopleRepository(
     /** Имя подтверждает группу: текущие лица закрепляются за человеком (ошибки — через «это не он»). */
     suspend fun rename(personId: Long, name: String?) {
         val clean = name?.trim()?.takeIf { it.isNotEmpty() }
+        builder.onUserEdit()
         db.withTransaction {
             dao.rename(personId, clean)
             if (clean != null) dao.lockFacesOf(personId)
@@ -220,6 +239,21 @@ class PeopleRepository(
         rebuildInBackground()
     }
 
+    /**
+     * Полный сброс людей: удаляются имена и все ручные правки, группы собираются с нуля.
+     * Ручные отметки на фото без лица исчезают вместе с людьми (они к ним привязаны).
+     */
+    suspend fun resetPeopleCompletely() {
+        db.withTransaction {
+            dao.unlockAll()
+            dao.deleteAllRejections()
+            dao.deleteAllDismissals()
+            dao.clearAssignments()
+            dao.deleteAllPersons()
+        }
+        rebuildInBackground()
+    }
+
     /** Подсказку «это тоже он?» для пары больше не показывать. */
     suspend fun dismissSuggestion(personId: Long, otherId: Long) {
         dao.insertDismissal(PersonPairDismissalEntity(minOf(personId, otherId), maxOf(personId, otherId)))
@@ -243,14 +277,18 @@ class PeopleRepository(
             .take(limit)
             .map { it.key }
         val people = dao.getPersonRows().associateBy { it.id }
-        candidates.mapNotNull { id -> people[id]?.let { Person(it.id, it.name, it.thumbnail, it.mediaCount) } }
+        candidates.mapNotNull { id -> people[id]?.let { Person(it.id, it.name, it.mediaCount) } }
     }
 
+    /** Правка пользователя: отмечаем её, чтобы идущий пересчёт не затёр результат своей копией. */
     private fun rebuildInBackground() {
+        builder.onUserEdit()
         appScope.launch { builder.rebuild() }
     }
 
     private companion object {
+        const val AVATAR_CACHE = 256
+
         /**
          * Центры групп одного человека в разных условиях похожи ≥ ~0.55; разные люди — ~0.1–0.3
          * (замерено на реальных лицах). 0.5 — с запасом, это лишь подсказка.
