@@ -30,8 +30,7 @@ class FaceDetector(private val models: ModelProvider) {
 
     val isAvailable: Boolean get() = models.isAvailable(ModelId.FACE_DETECT)
 
-    suspend fun detect(bitmap: Bitmap, minScore: Float = MIN_SCORE): List<DetectedFace> {
-        val session = models.session(ModelId.FACE_DETECT) ?: return emptyList()
+    suspend fun detect(bitmap: Bitmap, minScore: Float = MIN_SCORE): List<DetectedFace> = models.use(ModelId.FACE_DETECT) { session ->
         val scale = INPUT / max(bitmap.width, bitmap.height).toFloat()
         val input = letterboxBgr(bitmap, scale)
         val shape = longArrayOf(1, 3, INPUT.toLong(), INPUT.toLong())
@@ -68,8 +67,8 @@ class FaceDetector(private val models: ModelProvider) {
                 }
             }
         }
-        return nms(candidates).map { it.clippedTo(bitmap.width, bitmap.height) }
-    }
+        nms(candidates).map { it.clippedTo(bitmap.width, bitmap.height) }
+    } ?: emptyList()
 
     /** Вписать кадр в 640×640 (поля справа/снизу чёрные) -> NCHW float в порядке BGR, 0..255. */
     private fun letterboxBgr(bitmap: Bitmap, scale: Float): FloatBuffer {

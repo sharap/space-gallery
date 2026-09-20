@@ -320,12 +320,7 @@ class FaceExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
 }
 
 class FaceModelWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    /** Сравнение моделей идёт дольше 10 минут — держим foreground, иначе WorkManager прервёт. */
-    override suspend fun getForegroundInfo() =
-        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.FACES, 0, 0)
-
     override suspend fun doWork(): Result {
-        runCatching { setForeground(getForegroundInfo()) }
         val container = (applicationContext as SpaceGalleryApp).container
         try {
             FaceModelDiagnostics(container).run(
@@ -362,11 +357,7 @@ class RebuildWorker(context: Context, params: WorkerParameters) : CoroutineWorke
 }
 
 class FaceResolutionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun getForegroundInfo() =
-        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.FACES, 0, 0)
-
     override suspend fun doWork(): Result {
-        runCatching { setForeground(getForegroundInfo()) }
         val container = (applicationContext as SpaceGalleryApp).container
         try {
             FaceResolutionDiagnostics(container).run(inputData.getInt("photos", 150))

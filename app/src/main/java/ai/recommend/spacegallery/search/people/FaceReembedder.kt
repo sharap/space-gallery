@@ -2,11 +2,11 @@ package ai.recommend.spacegallery.search.people
 
 import ai.recommend.spacegallery.data.db.AppDatabase
 import ai.recommend.spacegallery.data.settings.SettingsRepository
-import ai.recommend.spacegallery.domain.MediaType
 import ai.recommend.spacegallery.ml.VectorMath
 import ai.recommend.spacegallery.ml.face.DetectedFace
+import ai.recommend.spacegallery.ml.face.FaceDetector
 import ai.recommend.spacegallery.ml.face.FaceEmbedder
-import ai.recommend.spacegallery.ml.image.BitmapLoader
+import ai.recommend.spacegallery.ml.image.FaceCropLoader
 import ai.recommend.spacegallery.perf.PerfStats
 import android.graphics.RectF
 import androidx.core.net.toUri
@@ -23,7 +23,8 @@ import androidx.room.withTransaction
  */
 class FaceReembedder(
     private val db: AppDatabase,
-    private val bitmapLoader: BitmapLoader,
+    private val faceCrops: FaceCropLoader,
+    private val detector: FaceDetector,
     private val embedder: FaceEmbedder,
     private val settings: SettingsRepository,
 ) {
@@ -43,24 +44,28 @@ class FaceReembedder(
             if (page.isEmpty()) break
             val failed = ArrayList<Long>()
             val results = ArrayList<Pair<Long, ByteArray>>(page.size)
-            for ((mediaId, rows) in page.groupBy { it.mediaId }) {
+            for (row in page) {
                 if (isStopped()) break
-                val bitmap = bitmapLoader.load(rows.first().uri.toUri(), MediaType.IMAGE, SOURCE_SIZE)
-                if (bitmap == null) {
-                    failed += rows.map { it.id }
+                // Лицо вырезается из оригинала по сохранённой рамке и точкам — кадр целиком не нужен.
+                val box = RectF(row.left, row.top, row.right, row.bottom)
+                val crop = PerfStats.measure("faces.crop") { faceCrops.load(row.uri.toUri(), box) }
+                if (crop == null) {
+                    failed += row.id
                     continue
                 }
-                for (row in rows) {
-                    val points = VectorMath.fromBytes(row.landmarks)
-                    // Точки хранятся в долях кадра — переводим в пиксели текущего превью.
-                    val pixels = FloatArray(points.size) { i ->
-                        if (i % 2 == 0) points[i] * bitmap.width else points[i] * bitmap.height
-                    }
-                    val face = DetectedFace(RectF(), pixels, score = 1f)
-                    val embedding = PerfStats.measure("faces.embed") { embedder.embed(bitmap, face, model) }
-                    if (embedding == null) failed += row.id else results += row.id to VectorMath.toBytes(embedding)
+                val points = VectorMath.fromBytes(row.landmarks)
+                val pixels = FloatArray(points.size) { i ->
+                    if (i % 2 == 0) crop.mapX(points[i]) else crop.mapY(points[i])
                 }
-                bitmap.recycle()
+                val mappedBox = RectF(crop.mapX(box.left), crop.mapY(box.top), crop.mapX(box.right), crop.mapY(box.bottom))
+                // Точки из базы сняты на превью — уточняем их внутри кропа (см. FaceIndexer).
+                val refined = detector.detect(crop.bitmap, REDETECT_SCORE)
+                    .maxByOrNull { iou(it.box, mappedBox) }
+                    ?.takeIf { iou(it.box, mappedBox) >= REDETECT_IOU }
+                val face = DetectedFace(mappedBox, refined?.landmarks ?: pixels, score = 1f)
+                val embedding = PerfStats.measure("faces.embed") { embedder.embed(crop.bitmap, face, model) }
+                crop.bitmap.recycle()
+                if (embedding == null) failed += row.id else results += row.id to VectorMath.toBytes(embedding)
             }
             db.withTransaction {
                 for ((id, embedding) in results) dao.setEmbedding(id, embedding, model.embedVersion)
@@ -72,8 +77,17 @@ class FaceReembedder(
         return processed
     }
 
+    private fun iou(a: RectF, b: RectF): Float {
+        val width = minOf(a.right, b.right) - maxOf(a.left, b.left)
+        val height = minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)
+        if (width <= 0f || height <= 0f) return 0f
+        val inter = width * height
+        return inter / (a.width() * a.height() + b.width() * b.height() - inter)
+    }
+
     private companion object {
         const val BATCH = 32
-        const val SOURCE_SIZE = 640
+        const val REDETECT_SCORE = 0.3f
+        const val REDETECT_IOU = 0.3f
     }
 }

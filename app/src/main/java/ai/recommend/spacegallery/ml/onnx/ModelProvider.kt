@@ -13,6 +13,10 @@ import java.io.File
  * Лениво создаёт и кеширует ONNX-сессии.
  * Если модели нет на устройстве — возвращает null, и соответствующая AI-функция
  * деградирует мягко (галерея продолжает работать без неё).
+ *
+ * Сессию нельзя закрывать, пока по ней идёт инференс: нативный код падает по SIGABRT
+ * («pthread_mutex_lock called on a destroyed mutex»). Поэтому работа с сессией — только через
+ * [use], а [release] ждёт, пока текущие вычисления закончатся.
  */
 class ModelProvider(
     private val context: Context,
@@ -21,6 +25,10 @@ class ModelProvider(
     private val mutex = Mutex()
     private val sessions = mutableMapOf<ModelId, OrtSession>()
     private val failed = mutableSetOf<ModelId>()
+
+    /** Сколько вычислений сейчас идёт по каждой сессии: пока > 0, закрывать её нельзя. */
+    private val inUse = mutableMapOf<ModelId, Int>()
+    private val idle = kotlinx.coroutines.sync.Semaphore(1)
 
     fun isAvailable(id: ModelId): Boolean =
         id !in failed && (userModelFile(id).exists() || assetExists(id))
@@ -45,9 +53,32 @@ class ModelProvider(
 
     val env get() = onnx.env
 
-    /** Освобождает нативную память (например, после окончания индексации). */
+    /**
+     * Выполняет [block] на сессии модели, не давая закрыть её в это время.
+     * null — модели нет (функция просто отключается).
+     */
+    suspend fun <T> use(id: ModelId, block: suspend (OrtSession) -> T): T? {
+        val session = session(id) ?: return null
+        mutex.withLock { inUse[id] = (inUse[id] ?: 0) + 1 }
+        try {
+            return block(session)
+        } finally {
+            mutex.withLock { inUse[id] = (inUse[id] ?: 1) - 1 }
+        }
+    }
+
+    /**
+     * Освобождает нативную память (например, после окончания индексации). Сессии, по которым
+     * прямо сейчас идут вычисления, не закрываются — иначе процесс падает в нативном коде.
+     */
     suspend fun release(vararg ids: ModelId) = mutex.withLock {
-        ids.forEach { sessions.remove(it)?.close() }
+        for (id in ids) {
+            if ((inUse[id] ?: 0) > 0) {
+                Log.i(TAG, "Модель ${id.fileName} сейчас используется — не выгружаем")
+                continue
+            }
+            sessions.remove(id)?.close()
+        }
     }
 
     /**

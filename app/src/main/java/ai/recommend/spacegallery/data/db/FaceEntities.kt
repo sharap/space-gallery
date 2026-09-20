@@ -145,6 +145,10 @@ data class FaceEmbedRow(
     val mediaId: Long,
     val uri: String,
     val landmarks: ByteArray,
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
 )
 
 /** Лицо с фото и человеком — для проверки срабатываний детектора. */
@@ -332,7 +336,7 @@ interface FaceDao {
 
     @Query(
         """
-        SELECT f.id, f.mediaId, m.uri, f.landmarks AS landmarks
+        SELECT f.id, f.mediaId, m.uri, f.landmarks AS landmarks, f.left, f.top, f.right, f.bottom
         FROM face f JOIN media m ON m.id = f.mediaId
         WHERE f.embedVersion <> :version AND f.landmarks IS NOT NULL
         ORDER BY f.mediaId

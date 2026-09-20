@@ -62,6 +62,11 @@ const val DEFAULT_FACE_EPS = 0.70f
  * Замеры на реальной медиатеке (448 лиц, 2026-09-20): при пороге, отсекающем 99% пар
  * «разные люди», [FAST] теряет 5% пар «тот же человек», [ACCURATE] — 1%.
  */
+/**
+ * Номер версии векторов меняется и при смене модели, и при смене способа подготовки лица
+ * (версии 5 и 6 — лицо вырезается из оригинала с повторным поиском ключевых точек).
+ * Лица с другой версией пересчитываются фоном, сами лица заново не ищутся.
+ */
 enum class FaceModel(
     val modelId: ModelId,
     val embedVersion: Int,
@@ -69,17 +74,16 @@ enum class FaceModel(
     val epsRange: ClosedFloatingPointRange<Float>,
 ) {
     /** MobileFaceNet, 13,6 МБ, ~25 мс на лицо. */
-    FAST(ModelId.FACE_EMBED, embedVersion = 4, defaultEps = 0.65f, epsRange = 0.50f..0.80f),
+    FAST(ModelId.FACE_EMBED, embedVersion = 5, defaultEps = 0.65f, epsRange = 0.50f..0.80f),
 
     /**
-     * ResNet50, 174 МБ, ~230 мс на лицо. Версия 2 — ею помечены векторы, посчитанные этой же
-     * моделью до появления выбора: при обновлении их не нужно считать заново.
+     * ResNet50, 174 МБ, ~230 мс на лицо.
      *
      * Радиус 0.70 (сходство 0.30) подобран на разметке пользователя (1977 подтверждённых лиц у
      * 24 человек, 2026-09-20): полнота 0.98 при нуле ошибочных склеек между названными людьми;
      * прежний 0.60 (от SFace) терял 15% пар одного человека.
      */
-    ACCURATE(ModelId.FACE_EMBED_HQ, embedVersion = 2, defaultEps = 0.70f, epsRange = 0.55f..0.85f),
+    ACCURATE(ModelId.FACE_EMBED_HQ, embedVersion = 6, defaultEps = 0.70f, epsRange = 0.55f..0.85f),
 }
 
 /** Какая сетка: у фото и у альбомов масштаб независимый. */
@@ -146,6 +150,14 @@ class SettingsRepository(private val context: Context) {
         it[SMART_PENDING] = (it[SMART_PENDING] ?: 0) + count
     }
 
+    /**
+     * До какого времени не просить foreground-сервис: на Android 15+ у типа «обработка медиа»
+     * есть суточный лимит, после которого система убивает сервис, и индексация зацикливается.
+     */
+    suspend fun foregroundBlockedUntil(): Long = context.dataStore.data.first()[FGS_BLOCKED_UNTIL] ?: 0L
+
+    suspend fun blockForeground(until: Long) = context.dataStore.edit { it[FGS_BLOCKED_UNTIL] = until }
+
     /** Версия алгоритма, которым последний раз группировали людей (0 — ещё не группировали). */
     suspend fun peopleAlgorithmVersion(): Int = context.dataStore.data.first()[PEOPLE_VERSION] ?: 0
 
@@ -163,6 +175,7 @@ class SettingsRepository(private val context: Context) {
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
         val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
         val FACE_MODEL = stringPreferencesKey("face_model")
+        val FGS_BLOCKED_UNTIL = longPreferencesKey("foreground_blocked_until")
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
         val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
         val SMART_EPS = floatPreferencesKey("smart_albums_eps")

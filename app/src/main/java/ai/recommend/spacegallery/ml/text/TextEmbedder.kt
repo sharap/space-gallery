@@ -41,9 +41,8 @@ class TextEmbedder(
     suspend fun embedMultilingual(text: String): FloatArray? =
         if (models.isAvailable(multilingual.modelId)) embedWith(multilingual, text) else null
 
-    private suspend fun embedWith(backend: TextEncoderBackend, text: String): FloatArray? {
-        val session = models.session(backend.modelId) ?: return null
-        val encoding = backend.tokenizer.get()?.encode(text) ?: return null
+    private suspend fun embedWith(backend: TextEncoderBackend, text: String): FloatArray? = models.use(backend.modelId) { session ->
+        val encoding = backend.tokenizer.get()?.encode(text) ?: return@use null
         val shape = longArrayOf(1, encoding.inputIds.size.toLong())
         val env = models.env
 
@@ -55,7 +54,7 @@ class TextEmbedder(
                 put(ATTENTION_MASK, OnnxTensor.createTensor(env, LongBuffer.wrap(encoding.attentionMask), shape))
             }
         }
-        return try {
+        try {
             session.run(inputs).use { result ->
                 VectorMath.l2Normalize(result.floatOutput(preferredName = "text_embeds"))
             }

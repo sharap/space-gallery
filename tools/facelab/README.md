@@ -1,0 +1,21 @@
+# Лаборатория лиц (на компьютере)
+
+Та же цепочка, что в приложении (YuNet -> выравнивание по 5 точкам -> ArcFace), но на файлах
+с диска и на onnxruntime для Python. Нужна, чтобы проверять идеи без телефона: один прогон по
+4000 снимкам занимает ~8 минут против часов на устройстве.
+
+Модели берутся из `app/src/debug/assets/models` (см. `models/install_models.sh`).
+
+```bash
+# onnxruntime без установки в систему: колесо — это обычный zip
+curl -sL -o ort.whl https://files.pythonhosted.org/.../onnxruntime-1.30.0-cp311-cp311-manylinux_2_28_x86_64.whl
+python3 -c "import zipfile; zipfile.ZipFile('ort.whl').extractall('pylibs')"
+
+PYTHONPATH=pylibs python3 facelab.py <каталог с фото> 200        # проверка: сколько лиц найдено
+PYTHONPATH=pylibs python3 resexp2.py <каталог> 4000 res.pkl      # три варианта вектора лица
+```
+
+`resexp2.py` считает для каждого лица три вектора: из превью 640, из кропа оригинала по точкам
+превью и из кропа с повторным поиском точек. Результаты замера — в `docs/performance.md`.
+
+Фотографии и векторы остаются на машине; в репозиторий попадают только скрипты.

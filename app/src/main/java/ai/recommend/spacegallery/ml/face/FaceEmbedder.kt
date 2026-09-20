@@ -27,12 +27,13 @@ class FaceEmbedder(private val models: ModelProvider) {
     fun isAvailable(model: FaceModel): Boolean = models.isAvailable(model.modelId)
 
     suspend fun embed(bitmap: Bitmap, face: DetectedFace, model: FaceModel): FloatArray? {
-        val session = models.session(model.modelId) ?: return null
         val aligned = alignCrop(bitmap, face.landmarks)
         val input = rgbTensor(aligned)
         aligned.recycle()
-        return OnnxTensor.createTensor(models.env, input, longArrayOf(1, 3, SIZE.toLong(), SIZE.toLong())).use { tensor ->
-            session.run(mapOf(session.inputNames.first() to tensor)).use { VectorMath.l2Normalize(it.floatOutput()) }
+        return models.use(model.modelId) { session ->
+            OnnxTensor.createTensor(models.env, input, longArrayOf(1, 3, SIZE.toLong(), SIZE.toLong())).use { tensor ->
+                session.run(mapOf(session.inputNames.first() to tensor)).use { VectorMath.l2Normalize(it.floatOutput()) }
+            }
         }
     }
 

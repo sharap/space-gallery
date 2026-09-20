@@ -8,6 +8,7 @@ import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.ml.hash.PerceptualHasher
 import ai.recommend.spacegallery.ml.image.BitmapLoader
+import ai.recommend.spacegallery.ml.image.FaceCropLoader
 import ai.recommend.spacegallery.ml.image.ImageEmbedder
 import ai.recommend.spacegallery.ml.image.SensitiveContentClassifier
 import ai.recommend.spacegallery.ml.onnx.ModelId
@@ -72,6 +73,7 @@ class AppContainer(context: Context) {
     // --- ml ---
     val onnx: OnnxRuntimeHolder by lazy { OnnxRuntimeHolder() }
     val models: ModelProvider by lazy { ModelProvider(appContext, onnx) }
+    val faceCropLoader: FaceCropLoader by lazy { FaceCropLoader(appContext.contentResolver) }
     val bitmapLoader: BitmapLoader by lazy { BitmapLoader(appContext.contentResolver) }
     val imageEmbedder: ImageEmbedder by lazy { ImageEmbedder(models) }
     val textEmbedder: TextEmbedder by lazy {
@@ -104,7 +106,7 @@ class AppContainer(context: Context) {
     val faceEmbedder: FaceEmbedder by lazy { FaceEmbedder(models) }
     val faceVerifier: FaceVerifier by lazy { FaceVerifier(imageEmbedder, textEmbedder) }
     val faceIndexer: FaceIndexer by lazy {
-        FaceIndexer(bitmapLoader, faceDetector, faceEmbedder, faceVerifier, database.faceDao(), settings)
+        FaceIndexer(bitmapLoader, faceCropLoader, faceDetector, faceEmbedder, faceVerifier, database.faceDao(), settings)
     }
     val peopleBuilder: PeopleBuilder by lazy {
         PeopleBuilder(database, settings, AvatarRenderer(appContext.contentResolver))
@@ -116,7 +118,7 @@ class AppContainer(context: Context) {
     val locationIndexer: LocationIndexer by lazy { LocationIndexer(appContext, database) }
     val placeIndex: PlaceIndex by lazy { PlaceIndex(appContext.assets) }
     val places: PlacesRepository by lazy { PlacesRepository(database.analysisDao(), placeIndex, mediaRepository) }
-    val faceReembedder: FaceReembedder by lazy { FaceReembedder(database, bitmapLoader, faceEmbedder, settings) }
+    val faceReembedder: FaceReembedder by lazy { FaceReembedder(database, faceCropLoader, faceDetector, faceEmbedder, settings) }
     val qualityIndexer: QualityIndexer by lazy { QualityIndexer(database, bitmapLoader) }
     val cleanupFinder: CleanupFinder by lazy { CleanupFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
     val cleanup: CleanupRepository by lazy { CleanupRepository(cleanupFinder, mediaRepository, appScope) }

@@ -9,10 +9,12 @@ import ai.recommend.spacegallery.ml.onnx.OnnxRuntimeHolder
 import ai.recommend.spacegallery.perf.PerfStats
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
@@ -42,11 +44,16 @@ class MediaIndexWorker(
 
     /** Удалось ли перевести воркер в foreground (на Android 12+ может быть запрещено из фона). */
     private var isForeground = false
+
+    /** Foreground временно недоступен: исчерпан суточный лимит сервиса «обработка медиа». */
+    private var foregroundBlocked = false
     private var lastNotificationAt = 0L
     private var phase = IndexingPhase.ANALYSIS
 
     override suspend fun doWork(): Result {
         val c = (applicationContext as SpaceGalleryApp).container
+        foregroundBlocked = System.currentTimeMillis() < c.settings.foregroundBlockedUntil()
+        if (foregroundBlocked) Log.i(TAG, "Foreground-сервис временно недоступен — работаем частями в фоне")
         PerfStats.measure("sync.mediastore") { c.mediaRepository.syncWithMediaStore() }
 
         val analyzed = try {
@@ -82,7 +89,7 @@ class MediaIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Quality assessment failed", e) // очистка подождёт, не повод перезапускать
         }
-        if (isStopped) return Result.retry()
+        if (isStopped) return checkStop(c)
 
         if (c.faceIndexer.isAvailable()) {
             val facesFound = try {
@@ -94,14 +101,23 @@ class MediaIndexWorker(
                 Log.e(TAG, "Face indexing failed", e)
                 return Result.retry()
             }
-            if (isStopped) return Result.retry()
+            if (isStopped) return checkStop(c)
             if (facesFound > 0 || c.peopleBuilder.needsRebuild()) {
                 // Лиц — тысячи, векторы короткие: доли секунды, уведомление не нужно.
                 enterPhase(IndexingPhase.GROUPING, total = 0, foreground = false)
                 rebuildPeople(c)
             }
         }
-        return if (isStopped) Result.retry() else Result.success()
+        return if (isStopped) checkStop(c) else Result.success()
+    }
+
+    /** Остановка по лимиту foreground-сервиса — запомнить и продолжить в фоне. */
+    private suspend fun checkStop(c: AppContainer): Result {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && stopReason == WorkInfo.STOP_REASON_FOREGROUND_SERVICE_TIMEOUT) {
+            Log.w(TAG, "Сервис остановлен по суточному лимиту — продолжим в фоне")
+            blockForeground()
+        }
+        return Result.retry()
     }
 
     /** Этап 1: CLIP/NSFW/dHash. Возвращает число проанализированных файлов. */
@@ -287,6 +303,7 @@ class MediaIndexWorker(
         IndexingNotifications.foregroundInfo(applicationContext, id, phase, 0, 0)
 
     private suspend fun tryStartForeground(processed: Int, total: Int) {
+        if (foregroundBlocked) return
         try {
             setForeground(IndexingNotifications.foregroundInfo(applicationContext, id, phase, processed, total))
             isForeground = true
@@ -295,7 +312,19 @@ class MediaIndexWorker(
             // исчерпан лимит времени FGS (Android 15). Продолжаем как обычный воркер —
             // если система остановит его, WorkManager перезапустит, прогресс сохранён в БД.
             Log.w(TAG, "Foreground service недоступен, индексируем в фоне", e)
+            blockForeground()
         }
+    }
+
+    /**
+     * Система остановила сервис по суточному лимиту: дальше работаем обычным воркером
+     * (частями по 10 минут), иначе каждый запуск будет убиваться на том же месте.
+     */
+    private suspend fun blockForeground() {
+        foregroundBlocked = true
+        isForeground = false
+        val c = (applicationContext as SpaceGalleryApp).container
+        c.settings.blockForeground(System.currentTimeMillis() + FOREGROUND_BACKOFF_MS)
     }
 
     /** Сводка по этапам за окно из [items] файлов — `adb logcat -s IndexPerf`. */
@@ -330,6 +359,9 @@ class MediaIndexWorker(
         private const val NOTIFICATION_THROTTLE_MS = 1_000L
         private const val PERF_TAG = "IndexPerf"
         private const val PERF_REPORT_EVERY = 64
+
+        /** Суточный лимит сервиса сбрасывается раз в сутки — столько и ждём. */
+        private const val FOREGROUND_BACKOFF_MS = 6 * 60 * 60 * 1000L
         const val KEY_PROCESSED = "processed"
         const val KEY_TOTAL = "total"
         const val KEY_PHASE = "phase"

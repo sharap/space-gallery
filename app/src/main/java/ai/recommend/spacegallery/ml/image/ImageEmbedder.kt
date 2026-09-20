@@ -25,10 +25,11 @@ class ImageEmbedder(private val models: ModelProvider) {
         PerfStats.measure("clip.preprocess") { ImageTensorizer.toNchw(bitmap, ModelSpecs.CLIP_IMAGE) }
 
     suspend fun embedPreprocessed(pixels: FloatBuffer): FloatArray? {
-        val session = PerfStats.measure("clip.session") { models.session(ModelId.CLIP_IMAGE) } ?: return null
-        return OnnxTensor.createTensor(models.env, pixels, ImageTensorizer.shape(ModelSpecs.CLIP_IMAGE)).use { input ->
-            PerfStats.measure("clip.run") { session.run(mapOf(session.inputNames.first() to input)) }.use { result ->
-                VectorMath.l2Normalize(result.floatOutput(preferredName = "image_embeds"))
+        return models.use(ModelId.CLIP_IMAGE) { session ->
+            OnnxTensor.createTensor(models.env, pixels, ImageTensorizer.shape(ModelSpecs.CLIP_IMAGE)).use { input ->
+                PerfStats.measure("clip.run") { session.run(mapOf(session.inputNames.first() to input)) }.use { result ->
+                    VectorMath.l2Normalize(result.floatOutput(preferredName = "image_embeds"))
+                }
             }
         }
     }

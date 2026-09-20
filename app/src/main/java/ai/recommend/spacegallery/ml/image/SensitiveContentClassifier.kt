@@ -33,21 +33,23 @@ class SensitiveContentClassifier(private val models: ModelProvider) {
     }
 
     private suspend fun scoreFromEmbedding(embedding: FloatArray): Float? {
-        val session = models.session(ModelId.NSFW_CLIP) ?: return null
-        return PerfStats.measure("nsfw.clip") {
-            OnnxTensor.createTensor(models.env, FloatBuffer.wrap(embedding), longArrayOf(1, embedding.size.toLong())).use { input ->
-                session.run(mapOf(session.inputNames.first() to input)).use { it.floatOutput()[0] }
+        return models.use(ModelId.NSFW_CLIP) { session ->
+            PerfStats.measure("nsfw.clip") {
+                OnnxTensor.createTensor(models.env, FloatBuffer.wrap(embedding), longArrayOf(1, embedding.size.toLong())).use { input ->
+                    session.run(mapOf(session.inputNames.first() to input)).use { it.floatOutput()[0] }
+                }
             }
         }
     }
 
     private suspend fun scoreFromPixels(bitmap: Bitmap): Float? {
-        val session = PerfStats.measure("nsfw.session") { models.session(ModelId.NSFW) } ?: return null
         val spec = ModelSpecs.NSFW
         val pixels = PerfStats.measure("nsfw.preprocess") { ImageTensorizer.toNchw(bitmap, spec) }
-        return OnnxTensor.createTensor(models.env, pixels, ImageTensorizer.shape(spec)).use { input ->
-            PerfStats.measure("nsfw.run") { session.run(mapOf(session.inputNames.first() to input)) }.use { result ->
-                VectorMath.softmax(result.floatOutput())[ModelSpecs.NSFW_POSITIVE_INDEX]
+        return models.use(ModelId.NSFW) { session ->
+            OnnxTensor.createTensor(models.env, pixels, ImageTensorizer.shape(spec)).use { input ->
+                PerfStats.measure("nsfw.run") { session.run(mapOf(session.inputNames.first() to input)) }.use { result ->
+                    VectorMath.softmax(result.floatOutput())[ModelSpecs.NSFW_POSITIVE_INDEX]
+                }
             }
         }
     }

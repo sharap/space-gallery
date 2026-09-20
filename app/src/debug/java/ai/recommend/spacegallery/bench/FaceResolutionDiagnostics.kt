@@ -37,6 +37,9 @@ class FaceResolutionDiagnostics(private val c: AppContainer) {
             val uri = group.first().uri.toUri()
             val preview = c.bitmapLoader.load(uri, MediaType.IMAGE, 640) ?: continue
             val detected = c.faceDetector.detect(preview)
+            // Крупный кадр декодируется один раз на снимок — под самое мелкое лицо на нём.
+            val smallest = group.minOf { max(it.right - it.left, it.bottom - it.top) }
+            val large = c.bitmapLoader.decodeForFace(uri, smallest, FACE_SIZE, MAX_SIDE)
             for (row in group) {
                 val box = RectF(row.left * preview.width, row.top * preview.height, row.right * preview.width, row.bottom * preview.height)
                 val match = detected.maxByOrNull { iou(it.box, box) }?.takeIf { iou(it.box, box) >= 0.5f } ?: continue
@@ -45,20 +48,19 @@ class FaceResolutionDiagnostics(private val c: AppContainer) {
                 smallMs += (System.nanoTime() - t0) / 1_000_000
 
                 // Те же ключевые точки, но на снимке в большем разрешении.
-                val fraction = max(row.right - row.left, row.bottom - row.top)
                 val t1 = System.nanoTime()
-                val large = c.bitmapLoader.decodeForFace(uri, fraction, FACE_SIZE, MAX_SIDE)?.let { big ->
+                val big = large?.let { bitmap ->
                     val scaled = FloatArray(match.landmarks.size) { i ->
-                        if (i % 2 == 0) match.landmarks[i] / preview.width * big.width else match.landmarks[i] / preview.height * big.height
+                        if (i % 2 == 0) match.landmarks[i] / preview.width * bitmap.width else match.landmarks[i] / preview.height * bitmap.height
                     }
-                    val v = c.faceEmbedder.embed(big, DetectedFace(RectF(), scaled, match.score), model)
-                    big.recycle()
-                    v
+                    c.faceEmbedder.embed(bitmap, DetectedFace(RectF(), scaled, match.score), model)
                 }
                 largeMs += (System.nanoTime() - t1) / 1_000_000
-                if (large != null) faces += Face(mediaId, row.lockedPersonId, small, large)
+                if (big != null) faces += Face(mediaId, row.lockedPersonId, small, big)
             }
             preview.recycle()
+            large?.recycle()
+            if (faces.size >= MAX_FACES) break
         }
         preview(faces, smallMs, largeMs)
     }
@@ -129,6 +131,8 @@ class FaceResolutionDiagnostics(private val c: AppContainer) {
     private companion object {
         /** Сколько пикселей должно занимать лицо в декодированном кадре. */
         const val FACE_SIZE = 224
-        const val MAX_SIDE = 3000
+        const val MAX_SIDE = 2048
+        /** Хватит для оценки: прогон должен уложиться в лимит воркера. */
+        const val MAX_FACES = 400
     }
 }
