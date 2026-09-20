@@ -73,8 +73,12 @@ enum class FaceModel(
     val defaultEps: Float,
     val epsRange: ClosedFloatingPointRange<Float>,
 ) {
-    /** MobileFaceNet, 13,6 МБ, ~25 мс на лицо. */
-    FAST(ModelId.FACE_EMBED, embedVersion = 5, defaultEps = 0.65f, epsRange = 0.50f..0.80f),
+    /**
+     * MobileFaceNet, 13,6 МБ, ~25 мс на лицо. Радиус 0.75 (сходство 0.25) подобран на разметке
+     * пользователя (2997 лиц у 59 человек, 2026-09-20): полнота 0.93 при том же числе ошибочных
+     * склеек, что у точной модели; человек чаще делится на два куска (медиана 2 против 1).
+     */
+    FAST(ModelId.FACE_EMBED, embedVersion = 5, defaultEps = 0.75f, epsRange = 0.60f..0.85f),
 
     /**
      * ResNet50, 174 МБ, ~230 мс на лицо.

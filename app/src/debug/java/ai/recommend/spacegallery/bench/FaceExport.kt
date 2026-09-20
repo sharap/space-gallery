@@ -38,12 +38,18 @@ class FaceExport(private val c: AppContainer) {
         // «Это не он»: отрицательные примеры пользователя.
         val rejections = c.database.faceDao().getRejections()
         File(dir, "rejections.tsv").writeText(rejections.joinToString("\n") { "${it.faceId}\t${it.personId}" })
+        // Имена файлов: по ним лаборатория на ПК находит те же снимки (см. tools/facelab).
+        val mediaIds = faces.map { it.mediaId }.distinct()
+        val media = mediaIds.chunked(900).flatMap { c.mediaRepository.getByIds(it) }
+        File(dir, "media.tsv").writeText(
+            media.joinToString("\n") { "${it.id}\t${it.displayName}\t${it.width}\t${it.height}" }
+        )
         val persons = c.database.faceDao().getPersonRows()
         File(dir, "persons.tsv").writeText(persons.joinToString("\n") { "${it.id}\t${it.name.orEmpty()}\t${it.mediaCount}" })
         val named = persons.count { !it.name.isNullOrBlank() }
         val locked = faces.count { it.lockedPersonId != null }
         val pending = c.faceReembedder.countPending()
         val unchecked = c.database.faceDao().countUnchecked(0.8f)
-        return "лиц ${faces.size} (модель ${s.faceModel} (v${s.faceModel.embedVersion}), ждут пересчёта $pending, непроверенных CLIP $unchecked), «это не он» ${rejections.size}, dim $dim, закреплённых $locked, людей ${persons.size} (с именем $named), файл ${bin.length() / 1024} КБ"
+        return "лиц ${faces.size} (модель ${s.faceModel} (v${s.faceModel.embedVersion}), ждут пересчёта $pending, непроверенных CLIP $unchecked), «это не он» ${rejections.size}, dim $dim, закреплённых $locked, людей ${persons.size} (с именем $named), файл ${bin.length() / 1024} КБ, снимков ${media.size}"
     }
 }
