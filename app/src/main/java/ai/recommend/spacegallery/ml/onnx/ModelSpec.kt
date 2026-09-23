@@ -43,6 +43,21 @@ enum class ModelId(val fileName: String) {
 
     /** Точное распознавание: ArcFace ResNet50 (insightface buffalo_l, MIT). 174 МБ, ~230 мс. */
     FACE_EMBED_HQ("face_embed_hq.onnx"),
+
+    /**
+     * Поиск строк текста (PaddleOCR PP-OCRv3 mobile det, Apache 2.0): [1,3,H,W] RGB,
+     * нормализация ImageNet -> карта вероятностей [1,1,H,W].
+     */
+    TEXT_DETECT("text_detect.onnx"),
+
+    /**
+     * Распознавание строки (PaddleOCR PP-OCRv5 eslav rec: русский, украинский, белорусский,
+     * болгарский, английский): [N,3,48,W] RGB, (x/255 − 0.5)/0.5 -> [N,T,519] для CTC.
+     */
+    TEXT_RECOGNIZE("text_recognize.onnx"),
+
+    /** Распознавание корейского (PaddleOCR PP-OCRv5 korean rec): тот же формат, 11 945 символов. */
+    TEXT_RECOGNIZE_KO("text_recognize_ko.onnx"),
 }
 
 data class ImageInputSpec(

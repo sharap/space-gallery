@@ -5,6 +5,7 @@ import ai.recommend.spacegallery.data.repository.MediaRepository
 import ai.recommend.spacegallery.domain.MediaType
 import ai.recommend.spacegallery.domain.ScoredMedia
 import ai.recommend.spacegallery.search.places.PlacesRepository
+import ai.recommend.spacegallery.search.text.TextRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -39,14 +40,26 @@ class FilteredSearch(
     private val repository: MediaRepository,
     private val faces: FaceDao,
     private val places: PlacesRepository,
+    private val textSearch: TextRepository,
 ) {
     suspend fun search(text: String, criteria: SearchCriteria): SearchOutcome {
-        if (criteria.isEmpty) return engine.search(text)
-        val candidates = candidates(criteria)
+        val allowed = if (criteria.isEmpty) null else candidates(criteria).mapTo(HashSet()) { it.id }
         if (text.isBlank()) {
-            return SearchOutcome.Results(candidates.map { ScoredMedia(it, 0f) })
+            val items = if (allowed == null) emptyList() else repository.observeTimeline().first().filter { it.id in allowed }
+            return SearchOutcome.Results(items.map { ScoredMedia(it, 0f) })
         }
-        return engine.search(text, include = candidates.mapTo(HashSet()) { it.id })
+        // Снимки, где такой текст прямо написан, — это точное попадание, они идут первыми.
+        val byText = textSearch.search(text).let { ids -> if (allowed == null) ids else ids.filter { it in allowed } }
+        val outcome = engine.search(text, include = allowed)
+        if (byText.isEmpty()) return outcome
+        val exact = repository.getVisibleByIds(byText).map { ScoredMedia(it, TEXT_MATCH_SCORE) }
+        val rest = (outcome as? SearchOutcome.Results)?.items.orEmpty().filterNot { it.item.id in byText.toHashSet() }
+        return SearchOutcome.Results(exact + rest)
+    }
+
+    private companion object {
+        /** Текст на снимке — совпадение точное, выше любой смысловой близости CLIP. */
+        const val TEXT_MATCH_SCORE = 1f
     }
 
     private suspend fun candidates(c: SearchCriteria) = withContext(Dispatchers.Default) {

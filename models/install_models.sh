@@ -21,6 +21,7 @@ MCLIP="$SRC/clip-ViT-B-32-multilingual-v1-ONNX"
 NSFW="$SRC/vit-base-nsfw-detector-ONNX"
 NSFW_CLIP="$SRC/clip-based-nsfw-detector-b32-ONNX"
 YUNET="$SRC/face_detection_yunet"
+OCR="$SRC/paddleocr-onnx"
 ARCFACE="$SRC/insightface-buffalo_l"
 
 # У многоязычного энкодера есть только fp32 и quantized — для прочих вариантов берём quantized.
@@ -38,5 +39,10 @@ cp -v "$NSFW_CLIP/onnx/model.onnx"          "$DST/nsfw_clip.onnx"   # 75 КБ, �
 cp -v "$YUNET/onnx/face_detection_yunet_2023mar.onnx" "$DST/face_detect.onnx"  # 230 КБ
 cp -v "$ARCFACE/w600k_mbf.onnx"             "$DST/face_embed.onnx"     # 13,6 МБ, MobileFaceNet
 cp -v "$ARCFACE/w600k_r50.onnx"             "$DST/face_embed_hq.onnx"  # 174 МБ, ArcFace r50
+cp -v "$OCR/detection/det_v3.onnx"          "$DST/text_detect.onnx"    # 2,4 МБ, PP-OCRv3 mobile det
+cp -v "$OCR/eslav/rec.onnx"                 "$DST/text_recognize.onnx" # 7,9 МБ, PP-OCRv5 eslav rec
+cp -v "$OCR/eslav/dict.txt"                 "$DST/text_dict.txt"       # словарь кириллицы
+cp -v "$OCR/korean/rec.onnx"                "$DST/text_recognize_ko.onnx" # 13 МБ, корейский
+cp -v "$OCR/korean/dict.txt"                "$DST/text_dict_ko.txt"
 
 du -sh "$DST"

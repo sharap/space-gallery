@@ -84,12 +84,18 @@ class IndexingScheduler(private val context: Context) {
 
     /**
      * Реагировать на новые фото, пока процесс жив.
+     *
+     * Идущую индексацию перезапускать нельзя: MediaStore меняется и от наших же обращений
+     * (система сохраняет превью, которые мы запрашиваем), и перезапуск «с нуля» зацикливал
+     * проход — он работал 10–20 секунд и начинался заново. Поэтому здесь только KEEP: новые
+     * файлы подхватит текущий проход (он читает очередь страницами) или следующий запуск.
+     *
      * TODO: для фоновой реакции — WorkManager c addContentUriTrigger.
      */
     fun startWatchingMediaStore() {
         if (observer != null) return
         val handler = Handler(Looper.getMainLooper())
-        val trigger = Runnable { requestIndexing(restart = true) }
+        val trigger = Runnable { requestIndexing(restart = false) }
         observer = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 // Debounce: камера и загрузчики присылают пачки уведомлений.
@@ -106,6 +112,7 @@ class IndexingScheduler(private val context: Context) {
 
     private companion object {
         const val WORK_NAME = "media-index"
-        const val DEBOUNCE_MS = 3_000L
+        /** Камера и загрузчики присылают пачки уведомлений; индексация — ещё и свои. */
+        const val DEBOUNCE_MS = 10_000L
     }
 }

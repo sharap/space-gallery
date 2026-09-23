@@ -69,7 +69,7 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 .setInputData(workDataOf("what" to intent.getStringExtra("action")))
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "modeldl") {
@@ -89,12 +89,37 @@ class BenchmarkReceiver : BroadcastReceiver() {
             OrtBenchmark.log("=== modeldl cleared")
             return
         }
+        if (intent.getStringExtra("action") == "fgsreset") {
+            // Снять паузу на запуск foreground-сервиса (её ставит воркер при отказе системы).
+            val pending = goAsync()
+            val container = (context.applicationContext as SpaceGalleryApp).container
+            container.appScope.launch {
+                container.settings.blockForeground(0L)
+                container.indexingScheduler.ensureIndexingNow(container.settings.current().indexOnlyWhileCharging)
+                OrtBenchmark.log("=== foreground разблокирован")
+                pending.finish()
+            }
+            return
+        }
+        if (intent.getStringExtra("action") == "codes") {
+            val request = OneTimeWorkRequestBuilder<CodeDiagnosticsWorker>()
+                .setInputData(
+                    workDataOf(
+                        "sample" to intent.getIntExtra("sample", 400),
+                        "needle" to (intent.getStringExtra("needle") ?: ""),
+                    )
+                )
+                .addTag(TAG_BENCH)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
+            return
+        }
         if (intent.getStringExtra("action") == "faceres") {
             val request = OneTimeWorkRequestBuilder<FaceResolutionWorker>()
                 .setInputData(workDataOf("photos" to intent.getIntExtra("photos", 150)))
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "facemodel") {
@@ -109,12 +134,12 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 )
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "faceexport") {
             val request = OneTimeWorkRequestBuilder<FaceExportWorker>().addTag(TAG_BENCH).build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "places") {
@@ -122,12 +147,12 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 .setInputData(workDataOf("sample" to intent.getIntExtra("sample", 20)))
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "cleanup") {
             val request = OneTimeWorkRequestBuilder<CleanupDiagnosticsWorker>().addTag(TAG_BENCH).build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "faceartifact") {
@@ -135,7 +160,7 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 .setInputData(workDataOf("name" to (intent.getStringExtra("name") ?: "кружка")))
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "faceverify") {
@@ -143,7 +168,7 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 .setInputData(workDataOf("names" to (intent.getStringExtra("names") ?: "")))
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "facediag") {
@@ -157,7 +182,7 @@ class BenchmarkReceiver : BroadcastReceiver() {
                 )
                 .addTag(TAG_BENCH)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
             return
         }
         if (intent.getStringExtra("action") == "reindex") {
@@ -187,7 +212,7 @@ class BenchmarkReceiver : BroadcastReceiver() {
             )
             .addTag(TAG_BENCH)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 }
 
@@ -363,6 +388,25 @@ class FaceResolutionWorker(context: Context, params: WorkerParameters) : Corouti
             FaceResolutionDiagnostics(container).run(inputData.getInt("photos", 150))
         } catch (e: Exception) {
             OrtBenchmark.log("=== faceres FAILED: $e")
+        }
+        return Result.success()
+    }
+}
+
+class CodeDiagnosticsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    /** Без переднего плана систему душит фоновые задачи и прогон обрывается через ~15 секунд. */
+    override suspend fun getForegroundInfo() =
+        IndexingNotifications.foregroundInfo(applicationContext, id, IndexingPhase.TEXT, 0, 0)
+
+    override suspend fun doWork(): Result {
+        runCatching { setForeground(getForegroundInfo()) }
+        // Индексация делит с замером память и процессор — на время прогона останавливаем её.
+        WorkManager.getInstance(applicationContext).cancelUniqueWork("media-index")
+        val container = (applicationContext as SpaceGalleryApp).container
+        try {
+            CodeDiagnostics(container).run(inputData.getInt("sample", 400), inputData.getString("needle") ?: "")
+        } catch (e: Exception) {
+            OrtBenchmark.log("=== codes FAILED: $e")
         }
         return Result.success()
     }

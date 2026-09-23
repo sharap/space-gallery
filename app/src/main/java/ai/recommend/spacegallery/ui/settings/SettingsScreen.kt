@@ -5,6 +5,7 @@ import ai.recommend.spacegallery.ui.appViewModelFactory
 import ai.recommend.spacegallery.ui.components.BackTopBar
 import ai.recommend.spacegallery.data.settings.DEFAULT_SMART_ALBUM_EPS
 import ai.recommend.spacegallery.data.settings.FaceModel
+import ai.recommend.spacegallery.data.settings.TextLanguage
 import ai.recommend.spacegallery.data.settings.SMART_ALBUM_EPS_RANGE
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -186,6 +187,34 @@ fun SettingsScreen(
                         }) { Text(stringResource(R.string.action_reset)) }
                     },
                     dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.action_cancel)) } },
+                )
+            }
+
+            HorizontalDivider()
+            SectionHeader(stringResource(R.string.settings_section_text))
+            Text(
+                stringResource(R.string.settings_text_languages_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            TextLanguage.entries.forEach { language ->
+                val available = viewModel.isModelAvailable(language.modelId)
+                val checked = language in s.textLanguages
+                ListItem(
+                    headlineContent = {
+                        Text(stringResource(if (language == TextLanguage.CYRILLIC) R.string.settings_text_cyrillic else R.string.settings_text_korean))
+                    },
+                    supportingContent = if (available) null else {
+                        { Text(stringResource(R.string.settings_face_model_missing)) }
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = checked,
+                            enabled = available && (!checked || s.textLanguages.size > 1),
+                            onCheckedChange = { viewModel.setTextLanguage(language, it) },
+                        )
+                    },
                 )
             }
 

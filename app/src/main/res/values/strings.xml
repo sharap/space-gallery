@@ -15,6 +15,7 @@
     <string name="indexing_phase_grouping">Группировка фото</string>
     <string name="indexing_phase_faces">Поиск лиц</string>
     <string name="indexing_phase_location">Чтение геометок</string>
+    <string name="indexing_phase_text">Чтение текста на фото</string>
     <string name="indexing_phase_quality">Оценка качества фото</string>
 
     <plurals name="items_count">
@@ -94,6 +95,11 @@
     <string name="person_new_text">Как зовут этого человека?</string>
     <string name="person_move_to">Перенести к другому человеку</string>
     <string name="person_move_to_title">К кому перенести (фото: %1$d)?</string>
+    <string name="photo_text_title">Текст на фото</string>
+    <string name="photo_text_copy_all">Копировать всё</string>
+    <string name="photo_text_open">Открыть</string>
+    <string name="photo_text_empty">Текст не найден</string>
+    <string name="action_copy">Копировать</string>
     <string name="photo_tags_title">Люди на фото</string>
     <string name="photo_tags_who">Кто это?</string>
     <string name="photo_tags_unknown">Не узнан</string>
@@ -222,6 +228,12 @@
     <string name="settings_section_about">О приложении</string>
     <string name="settings_places_data">Данные о местах</string>
     <string name="settings_places_data_desc">GeoNames (geonames.org), лицензия CC BY 4.0. Города определяются по координатам на устройстве, координаты никуда не отправляются.</string>
+    <string name="settings_section_text">Текст на фото</string>
+    <string name="settings_text_languages_desc">Какие языки распознавать. Язык снимка определяется автоматически; чем больше языков, тем дольше первая обработка. При изменении текст читается заново.</string>
+    <string name="settings_text_cyrillic">Русский и английский</string>
+    <string name="settings_text_korean">Корейский</string>
+    <string name="models_group_text">Текст на фото</string>
+    <string name="models_group_text_ko">Текст: корейский</string>
     <string name="settings_section_indexing">Индексация</string>
     <string name="settings_smart_eps">Радиус группировки</string>
     <string name="settings_smart_eps_desc">Меньше — мелкие, более однородные группы. Больше — крупнее, но разные темы могут склеиться. Альбомы пересобираются после изменения.</string>

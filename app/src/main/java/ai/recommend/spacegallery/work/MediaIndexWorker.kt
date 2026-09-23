@@ -28,7 +28,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * Фоновая индексация по этапам:
  * 1. синхронизация с MediaStore и AI-анализ новых/изменённых файлов (CLIP, NSFW, dHash);
  * 2. умные альбомы (DBSCAN по CLIP), если накопилось достаточно изменений;
- * 3. геометки (EXIF, метаданные видео) — для поиска по местам;
+ * 3. текст на снимках и QR-коды;
+ *    геометки (EXIF, метаданные видео) — для поиска по местам;
  *    оценка качества (резкость, яркость) — для очистки;
  * 4. поиск лиц (YuNet + SFace) на фото, где их ещё не искали;
  * 5. люди (средняя связь по лицам), если нашлись новые лица.
@@ -54,6 +55,10 @@ class MediaIndexWorker(
         val c = (applicationContext as SpaceGalleryApp).container
         foregroundBlocked = System.currentTimeMillis() < c.settings.foregroundBlockedUntil()
         if (foregroundBlocked) Log.i(TAG, "Foreground-сервис временно недоступен — работаем частями в фоне")
+        // Разрешение на запуск сервиса действует лишь первые секунды работы задачи (expedited),
+        // поэтому просим передний план сразу, а не когда дойдём до тяжёлого этапа: иначе система
+        // отказывает («Background started FGS: Disallowed»), и задачу душат окнами по 15 секунд.
+        if (!foregroundBlocked && hasPendingWork(c)) tryStartForeground(0, 0)
         PerfStats.measure("sync.mediastore") { c.mediaRepository.syncWithMediaStore() }
 
         val analyzed = try {
@@ -81,6 +86,15 @@ class MediaIndexWorker(
             Log.e(TAG, "Location reading failed", e)
         }
         if (isStopped) return Result.retry()
+
+        try {
+            readText(c)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Text recognition failed", e)
+        }
+        if (isStopped) return checkStop(c)
 
         try {
             assessQuality(c)
@@ -115,9 +129,21 @@ class MediaIndexWorker(
     private suspend fun checkStop(c: AppContainer): Result {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && stopReason == WorkInfo.STOP_REASON_FOREGROUND_SERVICE_TIMEOUT) {
             Log.w(TAG, "Сервис остановлен по суточному лимиту — продолжим в фоне")
-            blockForeground()
+            blockForeground(QUOTA_BACKOFF_MS)
         }
         return Result.retry()
+    }
+
+    /** Есть ли вообще работа: если нет, передний план и уведомление не нужны. */
+    private suspend fun hasPendingWork(c: AppContainer): Boolean {
+        val analysis = c.database.analysisDao().countPending(
+            MediaAnalyzer.PIPELINE_VERSION,
+            c.imageEmbedder.isAvailable,
+            c.sensitiveClassifier.isAvailable,
+        )
+        return analysis > 0 || c.textIndexer.countPending() > 0 || c.qualityIndexer.countPending() > 0 ||
+            c.locationIndexer.countPending() > 0 || c.faceIndexer.countPending() > 0 ||
+            c.faceReembedder.countPending() > 0
     }
 
     /** Этап 1: CLIP/NSFW/dHash. Возвращает число проанализированных файлов. */
@@ -200,6 +226,29 @@ class MediaIndexWorker(
         if (total == 0) return
         enterPhase(IndexingPhase.LOCATION, total, foreground = total >= FOREGROUND_THRESHOLD)
         c.locationIndexer.run(isStopped = { isStopped }) { processed -> reportProgress(processed, total) }
+    }
+
+    /** Распознавание текста и поиск QR-кодов. */
+    private suspend fun readText(c: AppContainer) {
+        if (!c.textIndexer.isAvailable) return
+        val total = c.textIndexer.countPending()
+        if (total == 0) return
+        enterPhase(IndexingPhase.TEXT, total, foreground = total >= FOREGROUND_THRESHOLD)
+        var reportedAt = 0
+        var windowStart = SystemClock.elapsedRealtime()
+        try {
+            val (_, found) = c.textIndexer.run(isStopped = { isStopped }) { processed ->
+                reportProgress(processed, total)
+                if (processed - reportedAt >= PERF_REPORT_EVERY) {
+                    logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "text.total")
+                    reportedAt = processed
+                    windowStart = SystemClock.elapsedRealtime()
+                }
+            }
+            if (found > 0) Log.i(TAG, "Текст или коды найдены на $found снимках")
+        } finally {
+            c.models.release(ModelId.TEXT_DETECT, ModelId.TEXT_RECOGNIZE, ModelId.TEXT_RECOGNIZE_KO)
+        }
     }
 
     /** Оценка резкости и яркости фото (для очистки). */
@@ -311,8 +360,9 @@ class MediaIndexWorker(
             // ForegroundServiceStartNotAllowedException (Android 12+, запуск из фона) или
             // исчерпан лимит времени FGS (Android 15). Продолжаем как обычный воркер —
             // если система остановит его, WorkManager перезапустит, прогресс сохранён в БД.
+            // Отказ «из фона» (экран заблокирован) — временный: пробуем снова через несколько минут.
             Log.w(TAG, "Foreground service недоступен, индексируем в фоне", e)
-            blockForeground()
+            blockForeground(DENIED_BACKOFF_MS)
         }
     }
 
@@ -320,11 +370,11 @@ class MediaIndexWorker(
      * Система остановила сервис по суточному лимиту: дальше работаем обычным воркером
      * (частями по 10 минут), иначе каждый запуск будет убиваться на том же месте.
      */
-    private suspend fun blockForeground() {
+    private suspend fun blockForeground(backoff: Long) {
         foregroundBlocked = true
         isForeground = false
         val c = (applicationContext as SpaceGalleryApp).container
-        c.settings.blockForeground(System.currentTimeMillis() + FOREGROUND_BACKOFF_MS)
+        c.settings.blockForeground(System.currentTimeMillis() + backoff)
     }
 
     /** Сводка по этапам за окно из [items] файлов — `adb logcat -s IndexPerf`. */
@@ -361,7 +411,10 @@ class MediaIndexWorker(
         private const val PERF_REPORT_EVERY = 64
 
         /** Суточный лимит сервиса сбрасывается раз в сутки — столько и ждём. */
-        private const val FOREGROUND_BACKOFF_MS = 6 * 60 * 60 * 1000L
+        private const val QUOTA_BACKOFF_MS = 6 * 60 * 60 * 1000L
+
+        /** Отказ из-за состояния приложения (экран заблокирован) проходит сам — ждём недолго. */
+        private const val DENIED_BACKOFF_MS = 5 * 60 * 1000L
         const val KEY_PROCESSED = "processed"
         const val KEY_TOTAL = "total"
         const val KEY_PHASE = "phase"

@@ -20,7 +20,12 @@ import ai.recommend.spacegallery.ml.text.TextEncoderBackend
 import ai.recommend.spacegallery.ml.text.WordPieceTokenizer
 import ai.recommend.spacegallery.search.cleanup.CleanupFinder
 import ai.recommend.spacegallery.search.cleanup.CleanupRepository
+import ai.recommend.spacegallery.ml.text.CodeScanner
+import ai.recommend.spacegallery.ml.text.TextDetector
+import ai.recommend.spacegallery.ml.text.TextRecognizer
 import ai.recommend.spacegallery.search.cleanup.QualityIndexer
+import ai.recommend.spacegallery.search.text.TextIndexer
+import ai.recommend.spacegallery.search.text.TextRepository
 import ai.recommend.spacegallery.search.places.LocationIndexer
 import ai.recommend.spacegallery.ml.onnx.ModelCatalog
 import ai.recommend.spacegallery.work.ModelDownloads
@@ -91,7 +96,7 @@ class AppContainer(context: Context) {
     val semanticSearch: SemanticSearchEngine by lazy {
         SemanticSearchEngine(textEmbedder, embeddingIndex, mediaRepository)
     }
-    val filteredSearch: FilteredSearch by lazy { FilteredSearch(semanticSearch, mediaRepository, database.faceDao(), places) }
+    val filteredSearch: FilteredSearch by lazy { FilteredSearch(semanticSearch, mediaRepository, database.faceDao(), places, textRepository) }
     val similarFinder: SimilarMediaFinder by lazy { SimilarMediaFinder(embeddingIndex, mediaRepository, settings) }
     val smartAlbumBuilder: SmartAlbumBuilder by lazy {
         SmartAlbumBuilder(
@@ -119,6 +124,11 @@ class AppContainer(context: Context) {
     val placeIndex: PlaceIndex by lazy { PlaceIndex(appContext.assets) }
     val places: PlacesRepository by lazy { PlacesRepository(database.analysisDao(), placeIndex, mediaRepository) }
     val faceReembedder: FaceReembedder by lazy { FaceReembedder(database, faceCropLoader, faceDetector, faceEmbedder, settings) }
+    val textDetector: TextDetector by lazy { TextDetector(models) }
+    val textRecognizer: TextRecognizer by lazy { TextRecognizer(appContext, models) }
+    val codeScanner: CodeScanner by lazy { CodeScanner() }
+    val textIndexer: TextIndexer by lazy { TextIndexer(bitmapLoader, textDetector, textRecognizer, codeScanner, database.textDao(), settings) }
+    val textRepository: TextRepository by lazy { TextRepository(database.textDao()) }
     val qualityIndexer: QualityIndexer by lazy { QualityIndexer(database, bitmapLoader) }
     val cleanupFinder: CleanupFinder by lazy { CleanupFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
     val cleanup: CleanupRepository by lazy { CleanupRepository(cleanupFinder, mediaRepository, appScope) }

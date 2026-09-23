@@ -66,6 +66,36 @@
       "group": "faces_hq",
       "size": 174383860,
       "sha256": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43"
+    },
+    {
+      "path": "text_detect.onnx",
+      "group": "text",
+      "size": 2429873,
+      "sha256": "ee40e80071ba3a320d4efda75f3e22047a7d049e9bf7bcaaf9daea23fc21b935"
+    },
+    {
+      "path": "text_recognize.onnx",
+      "group": "text",
+      "size": 7870092,
+      "sha256": "dc6bf0e855247decce214ba6dae5bc135fa0ad725a5918a7fcfb59fad6c9cdee"
+    },
+    {
+      "path": "text_dict.txt",
+      "group": "text",
+      "size": 1663,
+      "sha256": "3e95f1581557162870cacdba5af91a4c6be2890710d395b0c3c7578e7ee5e6eb"
+    },
+    {
+      "path": "text_recognize_ko.onnx",
+      "group": "text_ko",
+      "size": 13401252,
+      "sha256": "322f140154c820fcb83c3d24cfe42c9ec70dd1a1834163306a7338136e4f1eaa"
+    },
+    {
+      "path": "text_dict_ko.txt",
+      "group": "text_ko",
+      "size": 47451,
+      "sha256": "a88071c68c01707489baa79ebe0405b7beb5cca229f4fc94cc3ef992328802d7"
     }
   ]
 }

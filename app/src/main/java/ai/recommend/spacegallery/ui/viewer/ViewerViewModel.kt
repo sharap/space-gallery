@@ -7,6 +7,8 @@ import ai.recommend.spacegallery.search.people.FaceBox
 import ai.recommend.spacegallery.search.people.Person
 import ai.recommend.spacegallery.search.people.PersonOnPhoto
 import ai.recommend.spacegallery.search.people.PhotoTags
+import ai.recommend.spacegallery.search.text.PhotoText
+import ai.recommend.spacegallery.search.text.TextRepository
 import ai.recommend.spacegallery.ui.people.PersonChoice
 import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumRepository
@@ -34,6 +36,7 @@ class ViewerViewModel(
     private val repository: MediaRepository,
     private val smartAlbums: SmartAlbumRepository,
     private val people: PeopleRepository,
+    private val text: TextRepository,
     handle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -92,6 +95,11 @@ class ViewerViewModel(
 
     fun untagPerson(mediaId: Long, personId: Long) = viewModelScope.launch { people.untagPerson(mediaId, personId) }
 
+    /** Текст и коды, найденные на текущем снимке. */
+    val textOnCurrent: StateFlow<PhotoText> = currentMediaId
+        .flatMapLatest { id -> if (id == null) flowOf(EMPTY_TEXT) else text.observe(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EMPTY_TEXT)
+
     /** Какое фото сейчас на экране (страница, на которой остановился пейджер). */
     fun onCurrentMedia(mediaId: Long?) {
         currentMediaId.value = mediaId
@@ -112,6 +120,7 @@ class ViewerViewModel(
 
     private companion object {
         val EMPTY_TAGS = PhotoTags(emptyList(), emptyList())
+        val EMPTY_TEXT = PhotoText(emptyList(), emptyList())
     }
 
     fun toggleFavorite(item: MediaItem) = viewModelScope.launch {

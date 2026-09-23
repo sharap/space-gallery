@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -37,6 +38,8 @@ data class GallerySettings(
     val faceEps: Float = FaceModel.FAST.defaultEps,
     /** Скачивать AI-модели только по Wi-Fi (сотни мегабайт). */
     val modelsWifiOnly: Boolean = true,
+    /** Языки, которые распознаются на снимках. */
+    val textLanguages: Set<TextLanguage> = setOf(TextLanguage.CYRILLIC),
 ) {
     fun columns(kind: GridKind): Int = when (kind) {
         GridKind.MEDIA -> gridColumns
@@ -90,6 +93,16 @@ enum class FaceModel(
     ACCURATE(ModelId.FACE_EMBED_HQ, embedVersion = 6, defaultEps = 0.70f, epsRange = 0.55f..0.85f),
 }
 
+/**
+ * Язык распознавания текста на снимках. У PaddleOCR своя модель на группу языков; если выбрано
+ * несколько, язык снимка определяется по уверенности на первых строках.
+ */
+enum class TextLanguage(val modelId: ModelId, val dictionary: String) {
+    /** Русский, украинский, белорусский, болгарский и английский. */
+    CYRILLIC(ModelId.TEXT_RECOGNIZE, "text_dict.txt"),
+    KOREAN(ModelId.TEXT_RECOGNIZE_KO, "text_dict_ko.txt"),
+}
+
 /** Какая сетка: у фото и у альбомов масштаб независимый. */
 enum class GridKind { MEDIA, ALBUMS }
 
@@ -120,6 +133,10 @@ class SettingsRepository(private val context: Context) {
             faceModel = model,
             faceEps = p[epsKeyOf(model)]?.coerceIn(model.epsRange) ?: model.defaultEps,
             modelsWifiOnly = p[MODELS_WIFI_ONLY] ?: d.modelsWifiOnly,
+            textLanguages = p[TEXT_LANGUAGES]
+                ?.mapNotNullTo(LinkedHashSet()) { name -> TextLanguage.entries.firstOrNull { it.name == name } }
+                ?.takeIf { it.isNotEmpty() }
+                ?: d.textLanguages,
         )
     }
 
@@ -135,6 +152,16 @@ class SettingsRepository(private val context: Context) {
         val model = it[FACE_MODEL]?.let { name -> FaceModel.entries.firstOrNull { m -> m.name == name } } ?: FaceModel.FAST
         it[epsKeyOf(model)] = value.coerceIn(model.epsRange)
     }
+
+    /** Смена языков: текст на снимках будет прочитан заново (см. TextIndexer). */
+    suspend fun setTextLanguages(languages: Set<TextLanguage>) = context.dataStore.edit {
+        it[TEXT_LANGUAGES] = languages.map { language -> language.name }.toSet()
+    }
+
+    /** Набор языков, которым читали текст в прошлый раз. */
+    suspend fun textLanguagesSignature(): String = context.dataStore.data.first()[TEXT_SIGNATURE] ?: ""
+
+    suspend fun setTextLanguagesSignature(value: String) = context.dataStore.edit { it[TEXT_SIGNATURE] = value }
 
     /** Смена модели: лица будут пересчитаны новой моделью (FaceReembedder), люди пересобраны. */
     suspend fun setFaceModel(model: FaceModel) = context.dataStore.edit { it[FACE_MODEL] = model.name }
@@ -180,6 +207,8 @@ class SettingsRepository(private val context: Context) {
         val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
         val FACE_MODEL = stringPreferencesKey("face_model")
         val FGS_BLOCKED_UNTIL = longPreferencesKey("foreground_blocked_until")
+        val TEXT_LANGUAGES = stringSetPreferencesKey("text_languages")
+        val TEXT_SIGNATURE = stringPreferencesKey("text_languages_signature")
         val GRID_COLUMNS = intPreferencesKey("grid_columns")
         val ALBUM_GRID_COLUMNS = intPreferencesKey("album_grid_columns")
         val SMART_EPS = floatPreferencesKey("smart_albums_eps")

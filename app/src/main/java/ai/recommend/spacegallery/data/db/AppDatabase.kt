@@ -17,8 +17,12 @@ import androidx.room.RoomDatabase
         FaceRejectionEntity::class,
         PersonPairDismissalEntity::class,
         MediaPersonTagEntity::class,
+        MediaTextEntity::class,
+        MediaTextFts::class,
+        TextLineEntity::class,
+        MediaCodeEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: media.relativePath (для управления альбомами-папками).
@@ -41,6 +45,8 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 9, to = 10),
         // 10 -> 11: ключевые точки лица и версия модели векторов (смена SFace -> ArcFace r50).
         AutoMigration(from = 10, to = 11),
+        // 11 -> 12: распознанный текст (с полнотекстовым поиском), строки и коды на снимках.
+        AutoMigration(from = 11, to = 12),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -48,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun analysisDao(): AnalysisDao
     abstract fun smartAlbumDao(): SmartAlbumDao
     abstract fun faceDao(): FaceDao
+    abstract fun textDao(): TextDao
 
     companion object {
         fun build(context: Context): AppDatabase =

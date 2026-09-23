@@ -44,7 +44,7 @@ data class DuplicateGroup(
 )
 
 /** Этап фоновой индексации (подпись в уведомлении и в ленте). */
-enum class IndexingPhase { ANALYSIS, GROUPING, LOCATION, QUALITY, FACES }
+enum class IndexingPhase { ANALYSIS, GROUPING, LOCATION, QUALITY, TEXT, FACES }
 
 data class IndexingProgress(
     val isRunning: Boolean,

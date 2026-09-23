@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -70,7 +71,7 @@ fun ViewerScreen(
     /** Открыть страницу человека (все фото с ним) — из чипа «кто на фото». */
     onOpenPerson: (personId: Long) -> Unit,
     viewModel: ViewerViewModel = viewModel(
-        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, c.smartAlbums, c.people, handle) },
+        factory = appViewModelFactory { c, handle -> ViewerViewModel(c.mediaRepository, c.smartAlbums, c.people, c.textRepository, handle) },
     ),
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
@@ -114,6 +115,8 @@ private fun ViewerPager(
     ImmersiveMode(enabled = !chromeVisible)
 
     var tagging by remember { mutableStateOf(false) }
+    var showingText by remember { mutableStateOf(false) }
+    val photoText by viewModel.textOnCurrent.collectAsStateWithLifecycle()
     var pendingTrash by remember { mutableStateOf<MediaItem?>(null) }
     val confirmTrash = rememberTrashConfirmation {
         pendingTrash?.let(viewModel::onTrashConfirmed)
@@ -189,6 +192,9 @@ private fun ViewerPager(
                         }
                         if (current.type == MediaType.IMAGE) {
                             ViewerAction(Icons.Outlined.PersonAdd, stringResource(R.string.photo_tags_title)) { tagging = true }
+                            if (!photoText.isEmpty) {
+                                ViewerAction(Icons.Outlined.TextFields, stringResource(R.string.photo_text_title)) { showingText = true }
+                            }
                         }
                         ViewerAction(
                             if (current.isHiddenByUser) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
@@ -202,6 +208,10 @@ private fun ViewerPager(
                 }
             }
         }
+    }
+
+    if (showingText) {
+        PhotoTextSheet(photoText, onDismiss = { showingText = false })
     }
 
     if (tagging && current?.type == MediaType.IMAGE) {

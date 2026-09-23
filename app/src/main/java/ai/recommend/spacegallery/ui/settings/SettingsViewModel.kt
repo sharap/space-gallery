@@ -2,8 +2,10 @@ package ai.recommend.spacegallery.ui.settings
 
 import ai.recommend.spacegallery.data.db.AnalysisDao
 import ai.recommend.spacegallery.data.settings.GallerySettings
+import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.ModelProvider
 import ai.recommend.spacegallery.data.settings.FaceModel
+import ai.recommend.spacegallery.data.settings.TextLanguage
 import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.search.EmbeddingIndex
 import ai.recommend.spacegallery.search.people.PeopleBuilder
@@ -42,6 +44,17 @@ class SettingsViewModel(
     /** Сохранить радиус для лиц и пересобрать людей (имена сохраняются). */
     /** Модель лиц доступна (файл на устройстве): иначе её нельзя выбрать. */
     fun isModelAvailable(model: FaceModel): Boolean = models.isAvailable(model.modelId)
+
+    fun isModelAvailable(id: ModelId): Boolean = models.isAvailable(id)
+
+    /** Смена языков: текст на снимках будет прочитан заново (см. TextIndexer). */
+    fun setTextLanguage(language: TextLanguage, enabled: Boolean) = viewModelScope.launch {
+        val current = settings.current().textLanguages
+        val next = if (enabled) current + language else current - language
+        if (next.isEmpty()) return@launch
+        settings.setTextLanguages(next)
+        scheduler.ensureIndexingNow(settings.current().indexOnlyWhileCharging)
+    }
 
     /** Смена модели: лица пересчитаются новой моделью, люди пересоберутся (см. MediaIndexWorker). */
     /** Полный сброс людей: имена и все ручные правки. */

@@ -23,6 +23,8 @@ GROUPS = {
     "sensitive": ["nsfw_clip.onnx", "nsfw.onnx"],
     "faces": ["face_detect.onnx", "face_embed.onnx"],
     "faces_hq": ["face_embed_hq.onnx"],
+    "text": ["text_detect.onnx", "text_recognize.onnx", "text_dict.txt"],
+    "text_ko": ["text_recognize_ko.onnx", "text_dict_ko.txt"],
 }
 
 
