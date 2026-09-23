@@ -49,6 +49,14 @@ object OrtBenchmark {
                     setIntraOpNumThreads(config.threads)
                     addNnapi()
                 }
+                // Проверка ускорителя: с запретом CPU узлы либо берёт NPU, либо не берёт никто
+                // и всё откатывается на CPU (подробный журнал показывает, что именно).
+                // На Poco F6 ускорителя нет вовсе — см. docs/performance.md.
+                "nnapi_npu" -> {
+                    setIntraOpNumThreads(config.threads)
+                    setSessionLogLevel(ai.onnxruntime.OrtLoggingLevel.ORT_LOGGING_LEVEL_VERBOSE)
+                    addNnapi(java.util.EnumSet.of(ai.onnxruntime.providers.NNAPIFlags.CPU_DISABLED))
+                }
                 else -> error("unknown ep ${config.ep}")
             }
         }
