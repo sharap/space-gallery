@@ -11,7 +11,7 @@ from analyze import load
 from facelab import detect, align, embed, iou, MODELS
 
 S = os.path.dirname(os.path.abspath(__file__))
-ROOT = "/home/user/Sync"
+ROOT = os.environ.get("PHOTOS", ".")  # папка со снимками для прогона
 FACE_PX, MARGIN = 224, 0.6
 
 ids, media, person, locked, score, box, emb = load(f"{S}/faces.bin")

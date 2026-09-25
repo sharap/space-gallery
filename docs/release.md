@@ -31,20 +31,30 @@ APK появляются в `app/build/outputs/apk/release/`.
 
 ## Подпись
 
-Пока идёт разработка, релиз подписывается **отладочным** ключом (`~/.android/debug.keystore`) —
-иначе APK не поставить на телефон. Сборка сообщает об этом в лог.
-
-Настоящий ключ подключается свойствами, без правки скрипта сборки:
+Ключ описывается в `keystore.properties` рядом с проектом — файл в `.gitignore`, в репозиторий
+и в APK не попадает:
 
 ```properties
-# ~/.gradle/gradle.properties — чтобы пароли не попали в репозиторий
-releaseStoreFile=/путь/к/keystore.jks
-releaseStorePassword=…
-releaseKeyAlias=…
-releaseKeyPassword=…
+storeFile=/путь/к/keystore.jks
+storePassword=…
+keyAlias=…
+keyPassword=…
 ```
 
-Как только `releaseStoreFile` задан, сборка переключается на него сама.
+Пока файла нет, релиз подписывается **отладочным** ключом (`~/.android/debug.keystore`) —
+иначе APK не поставить на телефон; сборка пишет об этом в лог.
+
+Ключ создаётся один раз:
+
+```bash
+keytool -genkeypair -v -keystore ~/space-gallery.jks -alias space-gallery \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+**Его нельзя терять.** Android ставит обновление поверх установленного приложения только
+если подпись совпадает: с другим ключом пользователям придётся удалять приложение вместе
+со всей разметкой людей и индексом. Копию keystore и пароли стоит хранить отдельно от
+рабочей машины.
 
 ## Модели
 
@@ -57,6 +67,20 @@ releaseKeyPassword=…
 ```properties
 modelsBaseUrl=https://huggingface.co/аккаунт/репозиторий/resolve/main/
 ```
+
+## Выпуск на GitHub
+
+1. Поднять версию в `app/build.gradle.kts` (`versionCode`, `versionName`) и описать
+   изменения в `CHANGELOG.md`.
+2. Собрать: `./gradlew clean assembleRelease -PuniversalApk=true`.
+3. Проверить подпись — сертификат должен быть ваш, а не `CN=Android Debug`:
+   `apksigner verify --print-certs app/build/outputs/apk/release/app-arm64-v8a-release.apk`
+4. Поставить тег: `git tag -a v1.0 -m "1.0"` и `git push origin v1.0`.
+5. Создать релиз на GitHub, приложить APK из `app/build/outputs/apk/release/` и вставить
+   раздел из `CHANGELOG.md`.
+
+Если менялись модели — сначала выложить их (`models/upload_hf.sh`) и пересобрать манифест,
+иначе свежая сборка будет качать файлы, которых нет.
 
 ## Что ещё не сделано
 

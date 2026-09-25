@@ -5,11 +5,17 @@
 Запуск: PYTHONPATH=pylibs python3 facelab.py <каталог> [сколько фото]
 """
 import sys, os, math, random
+import os
 import numpy as np
 from PIL import Image
 import onnxruntime as ort
 
-MODELS = "/home/user/and/SpaceGallery/app/src/debug/assets/models"
+# Модели берём из отладочных ассетов проекта; каталог можно переопределить переменной
+# окружения SPACE_GALLERY_MODELS.
+MODELS = os.environ.get(
+    "SPACE_GALLERY_MODELS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "app", "src", "debug", "assets", "models"),
+)
 INPUT = 640
 STRIDES = (8, 16, 32)
 MIN_SCORE = 0.6
@@ -118,7 +124,8 @@ def photos(root, limit, seed=7):
 
 
 if __name__ == "__main__":
-    root = sys.argv[1] if len(sys.argv) > 1 else "/home/user/Sync"
+    # Папка со снимками для прогона: аргумент командной строки или PHOTOS.
+    root = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PHOTOS", ".")
     limit = int(sys.argv[2]) if len(sys.argv) > 2 else 50
     det, emb = sessions()
     found = 0

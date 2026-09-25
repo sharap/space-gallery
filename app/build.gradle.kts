@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -40,16 +42,21 @@ android {
     }
 
     signingConfigs {
-        // Настоящий ключ подставляется свойствами сборки (обычно в ~/.gradle/gradle.properties,
-        // чтобы пароли не попали в репозиторий):
-        //   releaseStoreFile=/путь/к/keystore.jks releaseStorePassword=… releaseKeyAlias=… releaseKeyPassword=…
-        val storeFilePath = (project.findProperty("releaseStoreFile") as String?).orEmpty()
-        if (storeFilePath.isNotEmpty()) {
+        // Ключ подписи описан в keystore.properties рядом с проектом — файл не в репозитории
+        // (см. .gitignore) и не попадает ни в историю, ни в APK:
+        //   storeFile=/путь/к/keystore.jks
+        //   storePassword=…
+        //   keyAlias=…
+        //   keyPassword=…
+        // Пока файла нет, релиз подписывается отладочным ключом — иначе APK не установить.
+        val keystoreProperties = rootProject.file("keystore.properties")
+        if (keystoreProperties.exists()) {
+            val key = Properties().apply { keystoreProperties.inputStream().use { stream -> load(stream) } }
             create("release") {
-                storeFile = file(storeFilePath)
-                storePassword = (project.findProperty("releaseStorePassword") as String?).orEmpty()
-                keyAlias = (project.findProperty("releaseKeyAlias") as String?).orEmpty()
-                keyPassword = (project.findProperty("releaseKeyPassword") as String?).orEmpty()
+                storeFile = file(key.getProperty("storeFile"))
+                storePassword = key.getProperty("storePassword")
+                keyAlias = key.getProperty("keyAlias")
+                keyPassword = key.getProperty("keyPassword")
             }
         }
     }
@@ -78,7 +85,7 @@ android {
             // Пока идёт разработка — подписываем отладочным ключом: иначе APK не поставить
             // на телефон. Как появится настоящий keystore, сборка сама переключится на него.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug").also {
-                logger.lifecycle("Релиз подписывается отладочным ключом (releaseStoreFile не задан)")
+                logger.lifecycle("Релиз подписывается отладочным ключом (нет keystore.properties)")
             }
             optimization {
                 enable = false
