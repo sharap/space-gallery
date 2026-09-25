@@ -14,6 +14,7 @@ import ai.recommend.spacegallery.ml.image.BitmapLoader
 import ai.recommend.spacegallery.ml.image.FaceCrop
 import ai.recommend.spacegallery.ml.image.FaceCropLoader
 import ai.recommend.spacegallery.perf.PerfStats
+import android.util.Log
 import android.graphics.Bitmap
 import ai.recommend.spacegallery.ml.face.FaceVerifier
 import android.graphics.Rect
@@ -74,6 +75,93 @@ class FaceIndexer(
         }
         return processed to found
     }
+
+    /** Кадры, на которых уже нашлось много лиц: кандидаты на пересмотр по частям. */
+    suspend fun crowdedMedia(): List<Long> = dao.crowdedMedia(CROWD_FACES)
+
+    /**
+     * Повторный поиск лиц на выбранных кадрах — когда изменились правила поиска, а гонять
+     * всю медиатеку заново незачем. Ручные правки переносятся на новые лица по месту в кадре,
+     * как и при обычном проходе.
+     *
+     * Возвращает (обработано кадров, найдено лиц).
+     */
+    suspend fun rescan(
+        mediaIds: List<Long>,
+        isStopped: () -> Boolean,
+        /** Сколько кадров пройдено и какой id пройден последним — по нему двигают курсор. */
+        onProgress: suspend (processed: Int, lastId: Long) -> Unit,
+    ): Pair<Int, Int> {
+        val model = settings.current().faceModel
+        var processed = 0
+        var found = 0
+        for (chunk in mediaIds.chunked(BATCH)) {
+            if (isStopped()) break
+            val page = dao.getMediaByIds(chunk)
+            val faces = ArrayList<FaceEntity>()
+            val done = ArrayList<Long>(page.size)
+            for (media in page) {
+                if (isStopped()) break
+                faces += PerfStats.measure("faces.total") { findFaces(media, model) }
+                done += media.id
+            }
+            val (inherited, rejections) = inheritEdits(done, faces)
+            dao.saveBatch(done, inherited, FACES_VERSION, rejections)
+            processed += done.size
+            found += faces.size
+            // Нечитаемые кадры из выборки выпадают, поэтому курсор ведём по входным id.
+            onProgress(processed, chunk.last())
+        }
+        return processed to found
+    }
+
+    /**
+     * Догоняет лица на людном кадре: кадр читается крупнее и просматривается по частям
+     * (2×2, а для больших снимков ещё и 3×3). Лица приходят в долях кадра, так что
+     * разрешение проходов значения не имеет и находки просто сливаются.
+     *
+     * Крупный битмап освобождается сразу: на телефоне он весит десятки мегабайт.
+     */
+    private suspend fun crowdFaces(media: MediaEntity, single: List<DetectedFace>): List<DetectedFace> {
+        // Именно decode, а не load: системное превью MediaStore бывает куда мельче
+        // запрошенного, а частям кадра нужны настоящие пиксели — иначе в них нет деталей.
+        val big = PerfStats.measure("faces.load.crowd") {
+            bitmapLoader.decode(media.uri.toUri(), targetSize = CROWD_SOURCE)
+        } ?: return single
+        try {
+            val tiled = ArrayList<DetectedFace>()
+            PerfStats.measure("faces.detect.crowd") {
+                tiled += detector.detectTiled(big, grid = 2, minFaceFraction = MIN_FACE_FRACTION)
+                if (max(big.width, big.height) >= DENSE_GRID_SIDE) {
+                    tiled += detector.detectTiled(big, grid = 3, minFaceFraction = MIN_FACE_FRACTION)
+                }
+            }
+            // Находки одного прохода уже слиты; порядок важен: своё, проверенное, идёт первым.
+            return detector.mergeOverlapping(single + tiled.map { it.toFractions(big.width, big.height) })
+        } catch (e: OutOfMemoryError) {
+            // Кадр 2560 px и его части — это десятки мегабайт поверх загруженных моделей.
+            // На тесном устройстве отказываемся от прохода по частям, а не падаем: лица
+            // первого прохода уже есть.
+            Log.w(TAG, "Не хватило памяти на разбор людного кадра ${media.id}", e)
+            return single
+        } finally {
+            big.recycle()
+        }
+    }
+
+    /** Координаты в доли кадра: только так находки разных проходов сравнимы между собой. */
+    private fun DetectedFace.toFractions(width: Int, height: Int) = DetectedFace(
+        RectF(box.left / width, box.top / height, box.right / width, box.bottom / height),
+        FloatArray(landmarks.size) { i -> if (i % 2 == 0) landmarks[i] / width else landmarks[i] / height },
+        score,
+    )
+
+    /** Обратно в пиксели кадра — для запасного пути, когда лицо режется из превью. */
+    private fun DetectedFace.toPixels(width: Int, height: Int) = DetectedFace(
+        RectF(box.left * width, box.top * height, box.right * width, box.bottom * height),
+        FloatArray(landmarks.size) { i -> if (i % 2 == 0) landmarks[i] * width else landmarks[i] * height },
+        score,
+    )
 
     /**
      * Уточняет лицо внутри вырезанного куска: ключевые точки, снятые на превью (лицо там
@@ -141,26 +229,29 @@ class FaceIndexer(
         val bitmap = PerfStats.measure("faces.load") {
             bitmapLoader.load(media.uri.toUri(), MediaType.IMAGE, targetSize = SOURCE_SIZE)
         } ?: return emptyList()
-        val detected = PerfStats.measure("faces.detect") { detector.detect(bitmap) }
         val minSide = max(bitmap.width, bitmap.height) * MIN_FACE_FRACTION
-        return detected
+        val single = PerfStats.measure("faces.detect") { detector.detect(bitmap) }
             .filter { it.box.width() >= minSide && it.box.height() >= minSide }
+            .map { it.toFractions(bitmap.width, bitmap.height) }
+        // Людный кадр — ищем ещё и по частям: в один проход лица в толпе слишком мелкие.
+        val found = if (single.size < CROWD_FACES) single else crowdFaces(media, single)
+
+        return found
             .take(MAX_FACES_PER_PHOTO)
             .mapNotNull { face ->
-                val box = RectF(
-                    face.box.left / bitmap.width,
-                    face.box.top / bitmap.height,
-                    face.box.right / bitmap.width,
-                    face.box.bottom / bitmap.height,
-                )
-                val points = FloatArray(face.landmarks.size) { i ->
-                    if (i % 2 == 0) face.landmarks[i] / bitmap.width else face.landmarks[i] / bitmap.height
-                }
+                val box = face.box
+                val points = face.landmarks
                 // Лицо вырезается из оригинала: в превью 640 оно занимает ~22 px, и вектор
                 // получается шумным (см. FaceCropLoader).
                 val crop = PerfStats.measure("faces.crop") { faceCrops.load(media.uri.toUri(), box) }
+                // Оригинал не прочитался — довольствуемся превью, но тогда и координаты
+                // нужны в его пикселях: дальше они идут в выравнивание.
                 val source = crop?.bitmap ?: bitmap
-                val detected = if (crop == null) face else preciseFace(crop, box, points, face.score)
+                val detected = if (crop == null) {
+                    face.toPixels(bitmap.width, bitmap.height)
+                } else {
+                    preciseFace(crop, box, points, face.score)
+                }
                 val embedding = PerfStats.measure("faces.embed") { embedder.embed(source, detected, model) }
                 val thumbnail = thumbnail(
                     source,
@@ -234,6 +325,7 @@ class FaceIndexer(
     }
 
     companion object {
+        private const val TAG = "FaceIndexer"
         /**
          * Увеличить при смене моделей/параметров — лица будут найдены заново
          * (люди и имена сохраняются: новое лицо наследует человека старого по пересечению рамок).
@@ -249,8 +341,28 @@ class FaceIndexer(
         private const val SOURCE_SIZE = 640
         /** Лица меньше 2% длинной стороны (≈ 13 px на 640) — шум; порог подобран на реальных фото. */
         private const val MIN_FACE_FRACTION = 0.02f
-        /** Групповые фото: хватит самых крупных/уверенных лиц. */
-        private const val MAX_FACES_PER_PHOTO = 20
+        /**
+         * Потолок на фото. Прежние 20 молча срезали групповые снимки: на «людных» кадрах
+         * медиатеки детектор находит 25–48 лиц, а в базе лежало ровно 20 (замер 2026-09-24).
+         */
+        private const val MAX_FACES_PER_PHOTO = 60
+
+        /** С такого числа лиц кадр считается людным и просматривается ещё и по частям. */
+        const val CROWD_FACES = 6
+
+        /** Для прохода по частям кадр читается крупнее: иначе в частях не прибавится деталей. */
+        private const val CROWD_SOURCE = 2560
+
+        /** Сетку 3×3 имеет смысл гонять только по действительно большому кадру. */
+        private const val DENSE_GRID_SIDE = 1600
+
+        /**
+         * Версия правил для людных кадров. Рост версии запускает разовый пересмотр таких
+         * кадров (см. MediaIndexWorker), а не переиндексацию всей медиатеки.
+         *
+         * 1 — поиск по частям кадра и потолок 60 лиц вместо 20.
+         */
+        const val CROWD_PASS_VERSION = 1
         private const val THUMB_SIZE = 128
         private const val THUMB_MARGIN = 1.4f
         private const val INHERIT_IOU = 0.5f

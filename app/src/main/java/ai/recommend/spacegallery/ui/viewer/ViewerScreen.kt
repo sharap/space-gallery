@@ -105,10 +105,11 @@ private fun ViewerPager(
     val faceBoxes by viewModel.faceBoxes.collectAsStateWithLifecycle()
     val peopleOnCurrent by viewModel.peopleOnCurrent.collectAsStateWithLifecycle()
     LaunchedEffect(current?.id) { viewModel.onCurrentMedia(current?.id) }
-    // Рамки всех узнанных людей на текущем фото (с подписью имени); со страницы человека — только его.
-    val currentBoxes = remember(peopleOnCurrent) {
-        peopleOnCurrent.flatMap { p -> p.boxes.map { it.copy(label = p.person.name) } }
-    }
+    val tagsOnCurrent by viewModel.tagsOnCurrent.collectAsStateWithLifecycle()
+    // Рамки всех найденных лиц на текущем кадре: узнанные — с подписью, ничейные — тоньше
+    // и без неё. Без ничейных на групповом снимке кажется, что человека вовсе не нашли.
+    // Со страницы человека показываем только его лицо.
+    val currentBoxes = remember(tagsOnCurrent) { tagsOnCurrent.faces.map { it.box } }
     val player = rememberViewerPlayer()
     LaunchedEffect(current?.id) { player.bindTo(current) }
 

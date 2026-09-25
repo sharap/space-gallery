@@ -8,6 +8,7 @@ import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.OnnxRuntimeHolder
 import ai.recommend.spacegallery.perf.PerfStats
+import ai.recommend.spacegallery.search.people.FaceIndexer
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
@@ -343,6 +344,12 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
+            // Кандидатов на пересмотр людных кадров отбираем до моделей лиц: отбор идёт по
+            // CLIP, а вместе с ArcFace они в память не помещаются.
+            val crowdIds = crowdCandidates(c)
+            if (crowdIds.isNotEmpty()) {
+                c.models.release(ModelId.CLIP_TEXT, ModelId.CLIP_TEXT_MULTILINGUAL, ModelId.CLIP_IMAGE)
+            }
             val (_, found) = c.faceIndexer.run(isStopped = { halted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
@@ -352,15 +359,57 @@ class MediaIndexWorker(
                 }
                 pace.tick()
             }
+            // Пересмотр людных кадров — пока модели лиц ещё загружены.
+            val recrowded = crowdPass(c, crowdIds)
             // Модели лиц (ArcFace ~174 МБ) освобождаются до проверки через CLIP: вместе они
             // не помещаются — система убивала процесс.
             c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
             val removed = c.faceIndexer.verifyExisting(isStopped = { halted() })
             if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
-            return found + removed
+            return found + removed + recrowded
         } finally {
             c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ, ModelId.CLIP_IMAGE, ModelId.CLIP_TEXT)
         }
+    }
+
+    /**
+     * Разовый пересмотр людных кадров: на них лица ищутся ещё и по частям кадра, и потолок
+     * лиц на фото поднят. Кандидаты — кадры, где лиц уже много, плюс кадры, которые CLIP
+     * считает групповыми (там детектор как раз мог найти одно-два лица из тридцати).
+     *
+     * Идёт по возрастанию id с сохранением курсора, поэтому прерывание не теряет работу.
+     */
+    private suspend fun crowdPass(c: AppContainer, candidates: List<Long>): Int {
+        if (candidates.isEmpty()) return 0
+        Log.i(TAG, "Пересмотр людных кадров: ${candidates.size} шт.")
+        // Своя подпись этапа: иначе в уведомлении остаётся счёт от обычного поиска лиц.
+        enterPhase(IndexingPhase.FACES, candidates.size, foreground = candidates.size >= FOREGROUND_THRESHOLD)
+        val (processed, found) = c.faceIndexer.rescan(candidates, isStopped = { halted() }) { done, lastId ->
+            reportProgress(done, candidates.size)
+            // Курсор — по пройденным id: после перезапуска пересмотр продолжится отсюда.
+            c.settings.setCrowdPassCursor(lastId)
+            pace.tick()
+        }
+        if (!halted()) c.settings.setCrowdPassDone(FaceIndexer.CROWD_PASS_VERSION)
+        Log.i(TAG, "Пересмотрено людных кадров: $processed, лиц на них: $found")
+        return found
+    }
+
+    /**
+     * Кадры, которые стоит пересмотреть: с множеством лиц и похожие на групповые по CLIP.
+     * Пусто, если пересмотр уже сделан или начатый дошёл до конца — тогда же отмечаем версию.
+     */
+    private suspend fun crowdCandidates(c: AppContainer): List<Long> {
+        if (c.settings.crowdPassVersion() >= FaceIndexer.CROWD_PASS_VERSION) return emptyList()
+        val cursor = c.settings.crowdPassCursor()
+        val crowded = c.faceIndexer.crowdedMedia().toMutableSet()
+        val query = runCatching { c.textEmbedder.embed(CROWD_QUERY) }.getOrNull()
+        if (query != null) {
+            crowded += c.embeddingIndex.search(query, limit = CROWD_CANDIDATES).map { it.first }
+        }
+        val rest = crowded.filter { it > cursor }.sorted()
+        if (rest.isEmpty()) c.settings.setCrowdPassDone(FaceIndexer.CROWD_PASS_VERSION)
+        return rest
     }
 
     private suspend fun rebuildSmartAlbums(c: AppContainer) {
@@ -465,6 +514,12 @@ class MediaIndexWorker(
         private const val NOTIFICATION_THROTTLE_MS = 1_000L
         private const val PERF_TAG = "IndexPerf"
         private const val PERF_REPORT_EVERY = 64
+
+        /** Описание групповой фотографии для CLIP: по нему отбираются кадры на пересмотр. */
+        private const val CROWD_QUERY = "групповая фотография, много людей вместе"
+
+        /** Сколько самых «групповых» кадров пересматривать: работа должна быть ограничена. */
+        private const val CROWD_CANDIDATES = 1500
 
         /** Суточный лимит сервиса сбрасывается раз в сутки — столько и ждём. */
         private const val QUOTA_BACKOFF_MS = 6 * 60 * 60 * 1000L

@@ -135,6 +135,7 @@ class PeopleBuilder(
             .filter { members -> members.size >= MIN_PTS || members.any { anchorOf[it] != null } }
             .mapTo(ArrayList()) { it.toMutableList() }
         knnReassign(clusters, valid, anchorOf, vectors, dim, rejected)
+        attachLeftovers(clusters, valid, anchorOf, vectors, dim, rejected)
         clusters.removeAll { members -> members.size < MIN_PTS && members.none { anchorOf[it] != null } }
         clusters.sortByDescending { it.size }
 
@@ -197,6 +198,46 @@ class PeopleBuilder(
      * лица какого-то человека (k-NN), переходят в его группу — даже если средняя связь положила
      * их в другую, неподтверждённую группу или оставила одиночками.
      */
+    /**
+     * Лица, не попавшие ни в одну группу, — к подходящей уже собранной группе.
+     *
+     * [knnReassign] выше опирается только на подтверждённые пользователем лица, а их мало:
+     * на медиатеке 2026-09-24 так привязывается 386 ничейных лиц из 4012, тогда как по всем
+     * лицам собранных групп — 906. Правило то же (среднее по трём самым похожим лицам группы
+     * плюс отрыв от второй по похожести группы): на уже размеченных лицах оно попадает верно
+     * в 98.3% случаев.
+     *
+     * Лицо не привязывается к группе, в которой уже есть лицо с этого же снимка: два лица на
+     * одном кадре — разные люди (коллажи из этого правила исключены раньше).
+     */
+    private fun attachLeftovers(
+        clusters: MutableList<MutableList<Int>>,
+        valid: List<FaceClusterRow>,
+        anchorOf: List<Long?>,
+        vectors: FloatArray,
+        dim: Int,
+        rejected: Map<Long, List<Long>>,
+    ) {
+        if (clusters.isEmpty()) return
+        val inCluster = BooleanArray(valid.size)
+        for (cluster in clusters) for (face in cluster) inCluster[face] = true
+        val candidates = valid.indices.filter { !inCluster[it] }.toIntArray()
+        if (candidates.isEmpty()) return
+
+        val examples = clusters.indices.associate { it.toLong() to clusters[it].toIntArray() }
+        val anchorOfCluster = clusters.map { members -> members.firstNotNullOfOrNull { anchorOf[it] } }
+        val rejectedSets = rejected.mapValues { it.value.toHashSet() }
+        val mediaOfCluster = clusters.map { members -> members.mapTo(HashSet()) { valid[it].mediaId } }
+
+        val assigned = knnAssign(vectors, dim, candidates, examples, isRejected = { face, cluster ->
+            val index = cluster.toInt()
+            valid[face].mediaId in mediaOfCluster[index] ||
+                anchorOfCluster[index]?.let { valid[face].id in rejectedSets[it].orEmpty() } == true
+        })
+        for ((face, cluster) in assigned) clusters[cluster.toInt()] += face
+        if (assigned.isNotEmpty()) Log.i(TAG, "Ничейных лиц привязано к группам: ${assigned.size}")
+    }
+
     private fun knnReassign(
         clusters: MutableList<MutableList<Int>>,
         valid: List<FaceClusterRow>,
@@ -308,10 +349,11 @@ class PeopleBuilder(
         /**
          * 1 — DBSCAN, 2 — средняя связь, 3 — + k-NN к подтверждённым, 4–5 — образцы k-NN только
          * из основной части подтверждённой группы, 6 — все лица участвуют в группировке
-         * (без предела в 3000) и штраф за пару лиц с одного снимка.
+         * (без предела в 3000) и штраф за пару лиц с одного снимка, 7 — группа от двух лиц
+         * и привязка ничейных лиц ко всем собранным группам, а не только к подтверждённым.
          * Увеличить при смене — люди пересоберутся.
          */
-        const val ALGORITHM_VERSION = 6
+        const val ALGORITHM_VERSION = 7
         const val EDGE = 0.01f
 
         /**
@@ -324,7 +366,16 @@ class PeopleBuilder(
         /** Сколько раз повторять пересчёт, если пользователь продолжает править. */
         const val MAX_ATTEMPTS = 5
         const val FACE_PAGE = 2000
-        const val MIN_PTS = 3
+        /**
+         * Сколько лиц нужно, чтобы считать группу человеком.
+         *
+         * Было 3, и на групповых снимках это заметно: человек, попавший в медиатеку дважды,
+         * не получал группы, а его лица оставались ничейными — на фото у них не было ни рамки,
+         * ни подписи. На медиатеке 2026-09-24 таких лиц (ровно один похожий сосед) — 973 из
+         * 4012 ничейных. Разные люди похожи друг на друга сильнее 0.35 лишь в 0.2% пар,
+         * так что пара — это почти всегда действительно один человек.
+         */
+        const val MIN_PTS = 2
         /** Группа наследует прежнего человека, если к нему относилось ≥ 40% её лиц. */
         const val INHERIT_FRACTION = 0.4
     }

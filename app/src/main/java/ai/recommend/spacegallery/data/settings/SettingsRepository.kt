@@ -212,6 +212,24 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setPeopleAlgorithmVersion(version: Int) = context.dataStore.edit { it[PEOPLE_VERSION] = version }
 
+    /**
+     * Какой версией правил пересмотрены людные кадры (см. FaceIndexer.CROWD_PASS_VERSION).
+     * Отдельно от общей версии поиска лиц: правило изменилось только для групповых снимков,
+     * и гонять всю медиатеку заново незачем.
+     */
+    suspend fun crowdPassVersion(): Int = context.dataStore.data.first()[CROWD_PASS_VERSION] ?: 0
+
+    /** Докуда дошёл пересмотр: пройденные кадры не повторяются после перезапуска. */
+    suspend fun crowdPassCursor(): Long = context.dataStore.data.first()[CROWD_PASS_CURSOR] ?: 0L
+
+    suspend fun setCrowdPassCursor(value: Long) = context.dataStore.edit { it[CROWD_PASS_CURSOR] = value }
+
+    /** Пересмотр людных кадров закончен — курсор больше не нужен. */
+    suspend fun setCrowdPassDone(version: Int) = context.dataStore.edit {
+        it[CROWD_PASS_VERSION] = version
+        it[CROWD_PASS_CURSOR] = 0L
+    }
+
     suspend fun markSmartAlbumsBuilt(at: Long) = context.dataStore.edit {
         it[SMART_BUILT_AT] = at
         it[SMART_PENDING] = 0
@@ -237,5 +255,7 @@ class SettingsRepository(private val context: Context) {
         val SMART_BUILT_AT = longPreferencesKey("smart_albums_built_at")
         val PEOPLE_VERSION = intPreferencesKey("people_algorithm_version")
         val SMART_PENDING = intPreferencesKey("smart_albums_pending_changes")
+        val CROWD_PASS_VERSION = intPreferencesKey("crowd_pass_version")
+        val CROWD_PASS_CURSOR = longPreferencesKey("crowd_pass_cursor")
     }
 }

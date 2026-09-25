@@ -18,14 +18,30 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
-/** Рамка лица в долях кадра (0..1); [label] — подпись под рамкой (имя человека). */
-data class FaceBox(val left: Float, val top: Float, val right: Float, val bottom: Float, val label: String? = null)
+/**
+ * Рамка лица в долях кадра (0..1); [label] — подпись под рамкой (имя человека),
+ * [known] — лицо отнесено к человеку (ничейные обводятся тоньше).
+ */
+data class FaceBox(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val label: String? = null,
+    val known: Boolean = true,
+)
 
 /** Человек на фото: он сам и рамки его лиц (обычно одна). */
 class PersonOnPhoto(val person: Person, val boxes: List<FaceBox>)
 
-/** Лицо на фото для ручной отметки: миниатюра и человек, к которому оно сейчас отнесено. */
-class FaceOnPhoto(val id: Long, val thumbnail: ByteArray, val personId: Long?, val personName: String?)
+/** Лицо на фото для ручной отметки: миниатюра, рамка и человек, к которому оно отнесено. */
+class FaceOnPhoto(
+    val id: Long,
+    val thumbnail: ByteArray,
+    val personId: Long?,
+    val personName: String?,
+    val box: FaceBox,
+)
 
 /** Отметки на фото: найденные лица и люди, отмеченные вручную без лица. */
 class PhotoTags(val faces: List<FaceOnPhoto>, val taggedPeople: List<Person>)
@@ -90,7 +106,15 @@ class PeopleRepository(
     fun observePhotoTags(mediaId: Long): Flow<PhotoTags> =
         combine(dao.observeFacesOnMedia(mediaId), dao.observeTaggedOnMedia(mediaId)) { faces, tagged ->
             PhotoTags(
-                faces = faces.map { FaceOnPhoto(it.id, it.thumbnail, it.personId, it.name) },
+                faces = faces.map {
+                    FaceOnPhoto(
+                        id = it.id,
+                        thumbnail = it.thumbnail,
+                        personId = it.personId,
+                        personName = it.name,
+                        box = FaceBox(it.left, it.top, it.right, it.bottom, label = it.name, known = it.personId != null),
+                    )
+                },
                 taggedPeople = tagged.map { Person(it.personId, it.name, mediaCount = 0) },
             )
         }

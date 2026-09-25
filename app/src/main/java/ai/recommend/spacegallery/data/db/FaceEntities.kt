@@ -168,7 +168,17 @@ data class FaceCheckRow(
 data class FaceBoxRow(val mediaId: Long, val left: Float, val top: Float, val right: Float, val bottom: Float)
 
 /** Лицо на фото для ручной отметки: миниатюра и к кому сейчас отнесено. */
-data class FaceOnMediaRow(val id: Long, val thumbnail: ByteArray, val personId: Long?, val name: String?)
+data class FaceOnMediaRow(
+    val id: Long,
+    val thumbnail: ByteArray,
+    val personId: Long?,
+    val name: String?,
+    /** Рамка в долях кадра — по ней лицо обводится на фото. */
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
 
 /** Человек, отмеченный на фото вручную без рамки лица. */
 data class TaggedPersonRow(val personId: Long, val name: String?)
@@ -192,6 +202,16 @@ interface FaceDao {
         """
     )
     suspend fun getPendingPage(version: Int, afterDateTaken: Long, afterId: Long, limit: Int): List<MediaEntity>
+
+    /** Конкретные кадры для повторного поиска лиц (нечитаемые пропускаем, как и в обычном проходе). */
+    @Query(
+        """
+        SELECT m.* FROM media m
+        JOIN media_analysis a ON a.mediaId = m.id
+        WHERE m.id IN (:mediaIds) AND m.mediaType = 0 AND a.isUnreadable = 0
+        """
+    )
+    suspend fun getMediaByIds(mediaIds: List<Long>): List<MediaEntity>
 
     @Query(
         """
@@ -297,6 +317,15 @@ interface FaceDao {
 
     @Insert
     suspend fun insertFaces(faces: List<FaceEntity>): List<Long>
+
+    /** Кадры, где лиц уже нашлось много: их стоит пересмотреть по частям. */
+    @Query(
+        """
+        SELECT mediaId FROM face WHERE isArtifact = 0
+        GROUP BY mediaId HAVING COUNT(*) >= :minFaces
+        """
+    )
+    suspend fun crowdedMedia(minFaces: Int): List<Long>
 
     @Query("SELECT * FROM face_rejection WHERE faceId IN (:faceIds)")
     suspend fun getRejectionsFor(faceIds: List<Long>): List<FaceRejectionEntity>
@@ -471,7 +500,7 @@ interface FaceDao {
     /** Все лица на фото (кроме помеченных «не лицо»), слева направо. */
     @Query(
         """
-        SELECT f.id, f.thumbnail, f.personId, p.name
+        SELECT f.id, f.thumbnail, f.personId, p.name, f.left, f.top, f.right, f.bottom
         FROM face f LEFT JOIN person p ON p.id = f.personId
         WHERE f.mediaId = :mediaId AND f.isArtifact = 0
         ORDER BY f.left

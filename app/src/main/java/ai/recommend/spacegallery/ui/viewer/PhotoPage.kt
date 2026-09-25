@@ -97,9 +97,13 @@ private fun FaceBoxesOverlay(boxes: List<FaceBox>, zoomableState: ZoomableState,
             val half = maxOf((box.right - box.left) * content.width, (box.bottom - box.top) * content.height) * 0.6f
             val topLeft = Offset(cx - half, cy - half)
             val size = Size(half * 2, half * 2)
+            // Узнанное лицо — уверенная белая рамка, ничейное — тоньше и бледнее: его нашли,
+            // но к человеку не отнесли.
+            val width = if (box.known) stroke else stroke * 0.6f
+            val paint = if (box.known) 1f else 0.55f
             // Тёмная подложка под белой линией — видно и на светлом, и на тёмном фоне.
-            drawRoundRect(Color.Black.copy(alpha = 0.45f), topLeft, size, CornerRadius(corner), style = Stroke(stroke * 2.5f))
-            drawRoundRect(Color.White, topLeft, size, CornerRadius(corner), style = Stroke(stroke))
+            drawRoundRect(Color.Black.copy(alpha = 0.45f * paint), topLeft, size, CornerRadius(corner), style = Stroke(width * 2.5f))
+            drawRoundRect(Color.White.copy(alpha = paint), topLeft, size, CornerRadius(corner), style = Stroke(width))
             box.label?.let { label ->
                 val text = textMeasurer.measure(label, labelStyle, maxLines = 1)
                 drawText(text, topLeft = Offset(cx - text.size.width / 2f, cy + half + stroke * 2))
