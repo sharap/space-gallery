@@ -22,7 +22,7 @@ import androidx.room.RoomDatabase
         TextLineEntity::class,
         MediaCodeEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: media.relativePath (для управления альбомами-папками).
@@ -47,6 +47,8 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 10, to = 11),
         // 11 -> 12: распознанный текст (с полнотекстовым поиском), строки и коды на снимках.
         AutoMigration(from = 11, to = 12),
+        // 12 -> 13: своя версия у поиска кодов — иначе проход без моделей стирал текст.
+        AutoMigration(from = 12, to = 13),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

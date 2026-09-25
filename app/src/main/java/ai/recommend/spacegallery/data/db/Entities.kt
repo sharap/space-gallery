@@ -74,8 +74,13 @@ data class MediaAnalysisEntity(
     val brightness: Float? = null,
     /** Версия оценки качества (отдельный быстрый проход, как и поиск лиц). */
     @ColumnInfo(defaultValue = "0") val qualityVersion: Int = 0,
-    /** Версия распознавания текста и поиска кодов (0 — ещё не искали). */
+    /** Версия распознавания текста (0 — ещё не читали). */
     @ColumnInfo(defaultValue = "0") val textVersion: Int = 0,
+    /**
+     * Версия поиска QR-кодов — отдельная от текста: коды ищутся и без моделей, и такой
+     * проход не должен выглядеть как «текст прочитан» и стирать распознанное раньше.
+     */
+    @ColumnInfo(defaultValue = "0") val codesVersion: Int = 0,
     /** Координаты съёмки из EXIF/метаданных видео; null — нет геометки. */
     val latitude: Double? = null,
     val longitude: Double? = null,

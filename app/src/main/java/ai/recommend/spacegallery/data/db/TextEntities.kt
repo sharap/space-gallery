@@ -70,29 +70,45 @@ data class MediaCodeEntity(
 @Dao
 interface TextDao {
 
-    /** Снимки, на которых ещё не искали текст (только изображения, читаемые). */
+    /**
+     * Снимки, которые нужно обработать: либо на них ещё не читали текст (и модели для этого
+     * есть), либо ещё не искали коды. Два условия раздельны — без моделей текста проход
+     * всё равно имеет смысл ради кодов, но распознанное раньше он трогать не должен.
+     */
     @Query(
         """
         SELECT m.* FROM media m
         JOIN media_analysis a ON a.mediaId = m.id
-        WHERE m.mediaType = 0 AND a.isUnreadable = 0 AND a.textVersion < :version
+        WHERE m.mediaType = 0 AND a.isUnreadable = 0
+          AND ((:canReadText AND a.textVersion < :textVersion) OR a.codesVersion < :codesVersion)
           AND (m.dateTaken < :afterDateTaken OR (m.dateTaken = :afterDateTaken AND m.id < :afterId))
         ORDER BY m.dateTaken DESC, m.id DESC
         LIMIT :limit
         """
     )
-    suspend fun getPendingPage(version: Int, afterDateTaken: Long, afterId: Long, limit: Int): List<MediaEntity>
+    suspend fun getPendingPage(
+        textVersion: Int,
+        codesVersion: Int,
+        canReadText: Boolean,
+        afterDateTaken: Long,
+        afterId: Long,
+        limit: Int,
+    ): List<MediaEntity>
 
     @Query(
         """
         SELECT COUNT(*) FROM media m JOIN media_analysis a ON a.mediaId = m.id
-        WHERE m.mediaType = 0 AND a.isUnreadable = 0 AND a.textVersion < :version
+        WHERE m.mediaType = 0 AND a.isUnreadable = 0
+          AND ((:canReadText AND a.textVersion < :textVersion) OR a.codesVersion < :codesVersion)
         """
     )
-    suspend fun countPending(version: Int): Int
+    suspend fun countPending(textVersion: Int, codesVersion: Int, canReadText: Boolean): Int
 
     @Query("UPDATE media_analysis SET textVersion = :version WHERE mediaId IN (:mediaIds)")
-    suspend fun markDone(mediaIds: List<Long>, version: Int)
+    suspend fun markTextDone(mediaIds: List<Long>, version: Int)
+
+    @Query("UPDATE media_analysis SET codesVersion = :version WHERE mediaId IN (:mediaIds)")
+    suspend fun markCodesDone(mediaIds: List<Long>, version: Int)
 
     /** Сменился набор языков — весь текст читается заново. */
     @Query("UPDATE media_analysis SET textVersion = 0")
@@ -116,22 +132,33 @@ interface TextDao {
     @Query("DELETE FROM media_code WHERE mediaId IN (:mediaIds)")
     suspend fun deleteCodes(mediaIds: List<Long>)
 
-    /** Результат распознавания пачки снимков: старое заменяется, снимки помечаются обработанными. */
+    /**
+     * Результат пачки снимков: старое заменяется, снимки помечаются обработанными.
+     *
+     * [textRead] = false — проход шёл без моделей текста, только ради кодов: тогда
+     * распознанный раньше текст остаётся нетронутым, а отметка о версии текста не ставится,
+     * иначе такие снимки считались бы прочитанными.
+     */
     @Transaction
     suspend fun saveBatch(
         mediaIds: List<Long>,
         texts: List<MediaTextEntity>,
         lines: List<TextLineEntity>,
         codes: List<MediaCodeEntity>,
-        version: Int,
+        textVersion: Int,
+        codesVersion: Int,
+        textRead: Boolean,
     ) {
-        deleteText(mediaIds)
-        deleteLines(mediaIds)
+        if (textRead) {
+            deleteText(mediaIds)
+            deleteLines(mediaIds)
+            texts.forEach { insertText(it) }
+            if (lines.isNotEmpty()) insertLines(lines)
+            markTextDone(mediaIds, textVersion)
+        }
         deleteCodes(mediaIds)
-        texts.forEach { insertText(it) }
-        if (lines.isNotEmpty()) insertLines(lines)
         if (codes.isNotEmpty()) insertCodes(codes)
-        markDone(mediaIds, version)
+        markCodesDone(mediaIds, codesVersion)
     }
 
     // --- Просмотр и поиск ---

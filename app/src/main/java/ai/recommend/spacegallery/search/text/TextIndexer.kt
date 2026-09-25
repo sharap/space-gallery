@@ -6,6 +6,8 @@ import ai.recommend.spacegallery.data.db.MediaTextEntity
 import ai.recommend.spacegallery.data.db.TextDao
 import ai.recommend.spacegallery.data.db.TextLineEntity
 import ai.recommend.spacegallery.data.settings.SettingsRepository
+import ai.recommend.spacegallery.ml.onnx.ModelCatalog
+import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.data.settings.TextLanguage
 import ai.recommend.spacegallery.domain.MediaType
 import ai.recommend.spacegallery.ml.image.BitmapLoader
@@ -31,6 +33,7 @@ class TextIndexer(
     private val codes: CodeScanner,
     private val dao: TextDao,
     private val settings: SettingsRepository,
+    private val catalog: ModelCatalog,
 ) {
     /** Коды ищутся и без моделей текста, поэтому проход имеет смысл всегда. */
     val isAvailable: Boolean get() = true
@@ -38,14 +41,36 @@ class TextIndexer(
     private suspend fun canReadText(): Boolean =
         detector.isAvailable && languages().any { recognizer.isAvailable(it) }
 
-    suspend fun countPending(): Int {
-        // Проверка до подсчёта: иначе смена языков не заметна, пока все снимки уже обработаны.
-        syncLanguages()
-        return dao.countPending(TEXT_VERSION)
+    /**
+     * Моделей текста ещё нет, но они скачиваются или выбраны к загрузке.
+     *
+     * Гонять проход ради одних кодов сейчас — выбрасывать работу: как только модели встанут,
+     * вся медиатека будет перечитана заново, и коды посчитаются в том же чтении снимка.
+     * Поэтому этап откладывается до конца загрузки. Если же модели текста не ждут вовсе
+     * (пользователь снял галочку с группы), проход по кодам осмыслен и идёт как раньше.
+     */
+    private suspend fun waitingForModels(): Boolean {
+        if (canReadText()) return false
+        val wanted = settings.current().modelGroups
+        return catalog.missing(wanted).any { it.group == ModelGroup.TEXT.key }
     }
 
-    /** Сменился набор языков — весь текст читается заново. */
+    suspend fun countPending(): Int {
+        if (waitingForModels()) return 0
+        // Проверка до подсчёта: иначе смена языков не заметна, пока все снимки уже обработаны.
+        syncLanguages()
+        return dao.countPending(TEXT_VERSION, CODES_VERSION, canReadText())
+    }
+
+    /**
+     * Сменился набор языков — весь текст читается заново.
+     *
+     * Если моделей текста нет вовсе (например, их ещё не скачали), набор пуст — но это не
+     * смена языков, а временное отсутствие моделей. Считать это сменой нельзя: приложение
+     * сбросило бы отметки у всей медиатеки и перечитало её вхолостую.
+     */
     private suspend fun syncLanguages() {
+        if (!canReadText()) return
         val signature = languages().filter { recognizer.isAvailable(it) }.joinToString(",") { it.name }
         if (settings.textLanguagesSignature() == signature) return
         dao.resetVersions()
@@ -56,6 +81,7 @@ class TextIndexer(
 
     /** @return сколько снимков обработано и на скольких нашёлся текст или код. */
     suspend fun run(isStopped: () -> Boolean, onProgress: suspend (Int) -> Unit): Pair<Int, Int> {
+        if (waitingForModels()) return 0 to 0
         val readText = canReadText()
         val languages = languages().filter { recognizer.isAvailable(it) }
         if (readText) recognizer.prepare(languages.toSet())
@@ -64,7 +90,7 @@ class TextIndexer(
         var afterDate = Long.MAX_VALUE
         var afterId = Long.MAX_VALUE
         while (!isStopped()) {
-            val page = dao.getPendingPage(TEXT_VERSION, afterDate, afterId, BATCH)
+            val page = dao.getPendingPage(TEXT_VERSION, CODES_VERSION, readText, afterDate, afterId, BATCH)
             if (page.isEmpty()) break
             val texts = ArrayList<MediaTextEntity>()
             val lines = ArrayList<TextLineEntity>()
@@ -82,7 +108,7 @@ class TextIndexer(
                 scanned += result.codes
                 if (result.lines.isNotEmpty() || result.codes.isNotEmpty()) found++
             }
-            dao.saveBatch(done, texts, lines, scanned, TEXT_VERSION)
+            dao.saveBatch(done, texts, lines, scanned, TEXT_VERSION, CODES_VERSION, readText)
             processed += done.size
             onProgress(processed)
             afterDate = page.last().dateTaken
@@ -176,6 +202,9 @@ class TextIndexer(
          * перечитываются другой моделью, коды ищутся и по кускам кадра.
          */
         const val TEXT_VERSION = 2
+
+        /** Версия поиска кодов: растёт, только когда меняется сам поиск (см. CodeScanner). */
+        const val CODES_VERSION = 1
 
         private const val BATCH = 8
 

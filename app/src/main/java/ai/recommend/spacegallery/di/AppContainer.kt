@@ -127,7 +127,7 @@ class AppContainer(context: Context) {
     val textDetector: TextDetector by lazy { TextDetector(models) }
     val textRecognizer: TextRecognizer by lazy { TextRecognizer(appContext, models) }
     val codeScanner: CodeScanner by lazy { CodeScanner() }
-    val textIndexer: TextIndexer by lazy { TextIndexer(bitmapLoader, textDetector, textRecognizer, codeScanner, database.textDao(), settings) }
+    val textIndexer: TextIndexer by lazy { TextIndexer(bitmapLoader, textDetector, textRecognizer, codeScanner, database.textDao(), settings, modelCatalog) }
     val textRepository: TextRepository by lazy { TextRepository(database.textDao()) }
     val qualityIndexer: QualityIndexer by lazy { QualityIndexer(database, bitmapLoader) }
     val cleanupFinder: CleanupFinder by lazy { CleanupFinder(database.analysisDao(), embeddingIndex, mediaRepository) }
