@@ -14,6 +14,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -43,6 +44,29 @@ class IndexingScheduler(private val context: Context) {
             if (restart) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
             request,
         )
+        scheduleNightPass()
+    }
+
+    /**
+     * Ночной проход: система сама запустит его, когда телефон поставят на зарядку и он
+     * начнёт простаивать. Только такой проход идёт в полный темп без ограничения по времени —
+     * дневные работают тихо и окнами (см. [IndexingPace]).
+     *
+     * Задача ждёт своих условий сколько угодно, поэтому ставится один раз (KEEP) и просто
+     * висит в очереди; когда она отработает, следующий запрос индексации поставит новую.
+     */
+    private fun scheduleNightPass() {
+        val request = OneTimeWorkRequestBuilder<MediaIndexWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresCharging(true)
+                    .setRequiresDeviceIdle(true)
+                    .setRequiresBatteryNotLow(true)
+                    .build()
+            )
+            .setInputData(workDataOf(MediaIndexWorker.KEY_FULL_PACE to true))
+            .build()
+        workManager.enqueueUniqueWork(NIGHT_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
 
     /**
@@ -54,6 +78,7 @@ class IndexingScheduler(private val context: Context) {
      */
     suspend fun ensureIndexingNow(onlyWhileCharging: Boolean) {
         this.onlyWhileCharging = onlyWhileCharging
+        scheduleNightPass()
         val running = workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
             .any { it.state == WorkInfo.State.RUNNING }
         if (running) return
@@ -112,6 +137,9 @@ class IndexingScheduler(private val context: Context) {
 
     private companion object {
         const val WORK_NAME = "media-index"
+
+        /** Отдельное имя: ночной проход ждёт своих условий, не мешая дневным запускам. */
+        const val NIGHT_WORK_NAME = "media-index-night"
         /** Камера и загрузчики присылают пачки уведомлений; индексация — ещё и свои. */
         const val DEBOUNCE_MS = 10_000L
     }

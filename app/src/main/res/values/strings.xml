@@ -248,5 +248,7 @@
     <string name="settings_face_eps_desc">Больше — смелее объединяет похожие лица в одного человека. Меньше — строже: один человек может разделиться на несколько. Имена сохраняются при пересчёте.</string>
     <string name="settings_reset_default">Сбросить по умолчанию</string>
     <string name="settings_only_charging">Анализировать только на зарядке</string>
+    <string name="settings_quiet_indexing">Тихая индексация</string>
+    <string name="settings_quiet_indexing_desc">Всегда работать медленно и незаметно. Если выключено, телефон на зарядке доиндексирует галерею на полной скорости, пока им не пользуются.</string>
     <string name="settings_reindex">Переиндексировать медиатеку</string>
 </resources>

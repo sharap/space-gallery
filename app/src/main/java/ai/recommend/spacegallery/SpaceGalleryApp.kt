@@ -17,6 +17,42 @@ class SpaceGalleryApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         container = AppContainer(this)
         IndexingNotifications.createChannel(this)
+        watchForeground()
+    }
+
+    /**
+     * Приложение на экране или нет — это нужно индексации: пока пользователь смотрит на
+     * прогресс, она работает в полный темп (см. [ai.recommend.spacegallery.work.IndexingPace]).
+     * Судить по `ActivityManager.getMyMemoryState` нельзя: как только воркер поднимает
+     * foreground service, важность процесса становится «сервисной» и признак теряется.
+     */
+    private fun watchForeground() {
+        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            private var started = 0
+
+            override fun onActivityStarted(activity: android.app.Activity) {
+                started++
+                isOnScreen = true
+            }
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                started--
+                if (started <= 0) isOnScreen = false
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, out: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
+    }
+
+    companion object {
+        /** Видит ли пользователь приложение прямо сейчас. */
+        @Volatile
+        var isOnScreen: Boolean = false
+            private set
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

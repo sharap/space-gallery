@@ -225,6 +225,11 @@ fun SettingsScreen(
                 trailingContent = { Switch(checked = s.indexOnlyWhileCharging, onCheckedChange = viewModel::setOnlyWhileCharging) },
             )
             ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_quiet_indexing)) },
+                supportingContent = { Text(stringResource(R.string.settings_quiet_indexing_desc)) },
+                trailingContent = { Switch(checked = s.quietIndexing, onCheckedChange = viewModel::setQuietIndexing) },
+            )
+            ListItem(
                 headlineContent = { Text(stringResource(R.string.models_title)) },
                 supportingContent = { Text(stringResource(R.string.settings_models_desc)) },
                 modifier = Modifier.clickable(onClick = onOpenModels),

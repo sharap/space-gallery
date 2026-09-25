@@ -23,6 +23,11 @@ data class GallerySettings(
     val similarityThreshold: Float = 0.75f,
     /** Индексировать только на зарядке. */
     val indexOnlyWhileCharging: Boolean = false,
+    /**
+     * Всегда работать тихо: меньше потоков и паузы между кадрами. По умолчанию выключено —
+     * темп выбирается сам (ночью на зарядке полный, днём тихий), см. [ai.recommend.spacegallery.work.IndexingPace].
+     */
+    val quietIndexing: Boolean = false,
     /** Число столбцов сетки фото (меняется щипком), см. [GRID_COLUMN_LEVELS]. */
     val gridColumns: Int = 4,
     /** Число столбцов сетки альбомов — отдельная настройка. */
@@ -124,6 +129,7 @@ class SettingsRepository(private val context: Context) {
             sensitiveThreshold = p[SENSITIVE_THRESHOLD] ?: d.sensitiveThreshold,
             similarityThreshold = p[SIMILARITY_THRESHOLD] ?: d.similarityThreshold,
             indexOnlyWhileCharging = p[ONLY_CHARGING] ?: d.indexOnlyWhileCharging,
+            quietIndexing = p[QUIET_INDEXING] ?: d.quietIndexing,
             gridColumns = p[GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS } ?: d.gridColumns,
             // Пока сетку альбомов не меняли — как у фото (раньше настройка была общей).
             albumGridColumns = p[ALBUM_GRID_COLUMNS]?.takeIf { it in GRID_COLUMN_LEVELS }
@@ -147,6 +153,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setModelsWifiOnly(value: Boolean) = context.dataStore.edit { it[MODELS_WIFI_ONLY] = value }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
+    suspend fun setQuietIndexing(value: Boolean) = context.dataStore.edit { it[QUIET_INDEXING] = value }
     /** Радиус хранится отдельно для каждой модели: их шкалы сходства не совпадают. */
     suspend fun setFaceEps(value: Float) = context.dataStore.edit {
         val model = it[FACE_MODEL]?.let { name -> FaceModel.entries.firstOrNull { m -> m.name == name } } ?: FaceModel.FAST
@@ -204,6 +211,7 @@ class SettingsRepository(private val context: Context) {
         val SENSITIVE_THRESHOLD = floatPreferencesKey("sensitive_threshold")
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
+        val QUIET_INDEXING = booleanPreferencesKey("index_quiet")
         val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
         val FACE_MODEL = stringPreferencesKey("face_model")
         val FGS_BLOCKED_UNTIL = longPreferencesKey("foreground_blocked_until")

@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -50,9 +51,36 @@ class MediaIndexWorker(
     private var foregroundBlocked = false
     private var lastNotificationAt = 0L
     private var phase = IndexingPhase.ANALYSIS
+    private lateinit var pace: IndexingPace
+
+    /** Остановиться пора: либо система забирает воркер, либо у тихого прохода вышло окно. */
+    private fun halted(): Boolean = isStopped || pace.exhausted()
 
     override suspend fun doWork(): Result {
         val c = (applicationContext as SpaceGalleryApp).container
+        // Ночной проход по расписанию и обычный — один и тот же воркер; вдвоём им на
+        // процессоре делать нечего.
+        if (!running.compareAndSet(false, true)) {
+            Log.i(TAG, "Индексация уже идёт — этот запуск подождёт")
+            return Result.retry()
+        }
+        return try {
+            index(c)
+        } finally {
+            OnnxRuntimeHolder.resetThreads()
+            running.set(false)
+        }
+    }
+
+    private suspend fun index(c: AppContainer): Result {
+        pace = IndexingPace(
+            applicationContext,
+            alwaysQuiet = c.settings.current().quietIndexing,
+            forceFull = inputData.getBoolean(KEY_FULL_PACE, false),
+            isStopped = { halted() },
+        )
+        OnnxRuntimeHolder.intraOpThreads = pace.mode.threads
+        Log.i(TAG, "Темп индексации: ${pace.describe()}")
         foregroundBlocked = System.currentTimeMillis() < c.settings.foregroundBlockedUntil()
         if (foregroundBlocked) Log.i(TAG, "Foreground-сервис временно недоступен — работаем частями в фоне")
         // Разрешение на запуск сервиса действует лишь первые секунды работы задачи (expedited),
@@ -69,14 +97,14 @@ class MediaIndexWorker(
             Log.e(TAG, "Indexing failed", e)
             return Result.retry()
         }
-        if (isStopped) return Result.retry()
+        if (halted()) return Result.retry()
 
         // Пока воркер в foreground и доступны все ядра — производные данные.
         if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = analyzed)) {
             enterPhase(IndexingPhase.GROUPING, total = 0, foreground = true) // ~3–10 с работы CPU
             rebuildSmartAlbums(c)
         }
-        if (isStopped) return Result.retry()
+        if (halted()) return Result.retry()
 
         try {
             readLocations(c)
@@ -85,7 +113,7 @@ class MediaIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Location reading failed", e)
         }
-        if (isStopped) return Result.retry()
+        if (halted()) return Result.retry()
 
         try {
             readText(c)
@@ -94,7 +122,7 @@ class MediaIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Text recognition failed", e)
         }
-        if (isStopped) return checkStop(c)
+        if (halted()) return checkStop(c)
 
         try {
             assessQuality(c)
@@ -103,7 +131,7 @@ class MediaIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Quality assessment failed", e) // очистка подождёт, не повод перезапускать
         }
-        if (isStopped) return checkStop(c)
+        if (halted()) return checkStop(c)
 
         if (c.faceIndexer.isAvailable()) {
             val facesFound = try {
@@ -115,14 +143,14 @@ class MediaIndexWorker(
                 Log.e(TAG, "Face indexing failed", e)
                 return Result.retry()
             }
-            if (isStopped) return checkStop(c)
+            if (halted()) return checkStop(c)
             if (facesFound > 0 || c.peopleBuilder.needsRebuild()) {
                 // Лиц — тысячи, векторы короткие: доли секунды, уведомление не нужно.
                 enterPhase(IndexingPhase.GROUPING, total = 0, foreground = false)
                 rebuildPeople(c)
             }
         }
-        return if (isStopped) checkStop(c) else Result.success()
+        return if (halted()) checkStop(c) else Result.success()
     }
 
     /** Остановка по лимиту foreground-сервиса — запомнить и продолжить в фоне. */
@@ -205,9 +233,10 @@ class MediaIndexWorker(
                     }
                 }
                 for (item in prepared) {
-                    if (isStopped) break
+                    if (halted()) break
                     results += c.mediaAnalyzer.analyze(item)
                     if (results.size >= BATCH_SIZE) flush()
+                    pace.tick()
                 }
                 flush()
                 producer.cancel()
@@ -225,7 +254,10 @@ class MediaIndexWorker(
         val total = c.locationIndexer.countPending()
         if (total == 0) return
         enterPhase(IndexingPhase.LOCATION, total, foreground = total >= FOREGROUND_THRESHOLD)
-        c.locationIndexer.run(isStopped = { isStopped }) { processed -> reportProgress(processed, total) }
+        c.locationIndexer.run(isStopped = { halted() }) { processed ->
+            reportProgress(processed, total)
+            pace.tick()
+        }
     }
 
     /** Распознавание текста и поиск QR-кодов. */
@@ -237,13 +269,14 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
-            val (_, found) = c.textIndexer.run(isStopped = { isStopped }) { processed ->
+            val (_, found) = c.textIndexer.run(isStopped = { halted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "text.total")
                     reportedAt = processed
                     windowStart = SystemClock.elapsedRealtime()
                 }
+                pace.tick()
             }
             if (found > 0) Log.i(TAG, "Текст или коды найдены на $found снимках")
         } finally {
@@ -258,13 +291,14 @@ class MediaIndexWorker(
         enterPhase(IndexingPhase.QUALITY, total, foreground = total >= FOREGROUND_THRESHOLD)
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
-        c.qualityIndexer.run(isStopped = { isStopped }) { processed ->
+        c.qualityIndexer.run(isStopped = { halted() }) { processed ->
             reportProgress(processed, total)
             if (processed - reportedAt >= PERF_REPORT_EVERY * 4) {
                 logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "quality.total")
                 reportedAt = processed
                 windowStart = SystemClock.elapsedRealtime()
             }
+            pace.tick()
         }
     }
 
@@ -277,13 +311,14 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         return try {
-            c.faceReembedder.run(isStopped = { isStopped }) { processed ->
+            c.faceReembedder.run(isStopped = { halted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.embed")
                     reportedAt = processed
                     windowStart = SystemClock.elapsedRealtime()
                 }
+                pace.tick()
             }
         } finally {
             c.models.release(ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
@@ -297,18 +332,19 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
-            val (_, found) = c.faceIndexer.run(isStopped = { isStopped }) { processed ->
+            val (_, found) = c.faceIndexer.run(isStopped = { halted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.total")
                     reportedAt = processed
                     windowStart = SystemClock.elapsedRealtime()
                 }
+                pace.tick()
             }
             // Модели лиц (ArcFace ~174 МБ) освобождаются до проверки через CLIP: вместе они
             // не помещаются — система убивала процесс.
             c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
-            val removed = c.faceIndexer.verifyExisting(isStopped = { isStopped })
+            val removed = c.faceIndexer.verifyExisting(isStopped = { halted() })
             if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
             return found + removed
         } finally {
@@ -342,6 +378,8 @@ class MediaIndexWorker(
     /** Новый этап: подпись в уведомлении/ленте; тяжёлые этапы — в foreground. */
     private suspend fun enterPhase(newPhase: IndexingPhase, total: Int, foreground: Boolean) {
         phase = newPhase
+        // Модели этапа ещё не загружены — самое время применить число потоков текущего темпа.
+        OnnxRuntimeHolder.intraOpThreads = pace.mode.threads
         lastNotificationAt = 0L
         if (foreground && !isForeground) tryStartForeground(0, total)
         reportProgress(0, total)
@@ -382,9 +420,10 @@ class MediaIndexWorker(
         val state = ActivityManager.RunningAppProcessInfo().also { ActivityManager.getMyMemoryState(it) }
         val header = String.format(
             Locale.ROOT,
-            "%s %d/%d: %d files in %.1fs = %.0f ms/file | importance=%d fgService=%b ortThreads=%d cpus=%d",
+            "%s %d/%d: %d files in %.1fs = %.0f ms/file | pace=%s importance=%d fgService=%b ortThreads=%d cpus=%d",
             phase, processed, total, items, wallMs / 1000.0, wallMs.toDouble() / items,
-            state.importance, isForeground, OnnxRuntimeHolder.intraOpThreads, Runtime.getRuntime().availableProcessors(),
+            pace.mode, state.importance, isForeground, OnnxRuntimeHolder.intraOpThreads,
+            Runtime.getRuntime().availableProcessors(),
         )
         Log.i(PERF_TAG, header + "\n" + PerfStats.reportAndReset(totalStage))
     }
@@ -400,6 +439,12 @@ class MediaIndexWorker(
 
     companion object {
         private const val TAG = "MediaIndexWorker"
+
+        /** Один проход на процесс: ночной по расписанию и обычный не должны идти вдвоём. */
+        private val running = AtomicBoolean(false)
+
+        /** Проход запущен по ночному расписанию — темп полный, окно не ограничено. */
+        const val KEY_FULL_PACE = "full_pace"
         private const val BATCH_SIZE = 16
         private const val PAGE_SIZE = 64
 

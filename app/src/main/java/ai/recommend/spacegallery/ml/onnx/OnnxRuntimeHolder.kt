@@ -9,7 +9,21 @@ class OnnxRuntimeHolder {
     val env: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
 
     companion object {
-        val intraOpThreads: Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+        private val defaultThreads: Int = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+
+        /**
+         * Сколько потоков отдавать инференсу. Индексация ставит это число по темпу
+         * ([ai.recommend.spacegallery.work.IndexingPace]) перед загрузкой моделей: число
+         * запоминается сессией при создании, поэтому смена темпа посреди этапа
+         * действует только на паузы, а на потоки — со следующей загрузки модели.
+         */
+        @Volatile
+        var intraOpThreads: Int = defaultThreads
+
+        /** После индексации — обратно, чтобы поиск в открытом приложении считался быстро. */
+        fun resetThreads() {
+            intraOpThreads = defaultThreads
+        }
     }
 
     fun createSession(modelPath: String): OrtSession {

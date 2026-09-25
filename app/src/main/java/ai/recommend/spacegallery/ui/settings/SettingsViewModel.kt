@@ -93,6 +93,9 @@ class SettingsViewModel(
         scheduler.requestIndexing(onlyWhileCharging = v, restart = true)
     }
 
+    /** Темп применяется со следующего прохода: текущий уже создал сессии со своим числом потоков. */
+    fun setQuietIndexing(v: Boolean) = viewModelScope.launch { settings.setQuietIndexing(v) }
+
     /** Сбросить результаты анализа и проиндексировать всё заново. */
     fun reindex() = viewModelScope.launch {
         analysisDao.clear()
