@@ -1,12 +1,8 @@
 *.iml
 .gradle
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+# Настройки Android Studio: у каждого свои, в репозитории от них один шум.
+/.idea/
 .DS_Store
 /build
 /captures
