@@ -12,6 +12,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -27,6 +28,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
 import java.security.MessageDigest
 import kotlin.coroutines.cancellation.CancellationException
@@ -40,6 +43,7 @@ import kotlin.coroutines.cancellation.CancellationException
 class ModelDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     private var lastNotificationAt = 0L
+    private var proxyLogged = false
 
     override suspend fun doWork(): Result {
         val c = (applicationContext as SpaceGalleryApp).container
@@ -86,7 +90,7 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             if (part.length() > entry.size) part.delete()
             var offset = part.length()
             if (offset < entry.size) {
-                val connection = URL(BuildConfig.MODELS_BASE_URL.trimEnd('/') + "/" + entry.path).openConnection() as HttpURLConnection
+                val connection = open(URL(BuildConfig.MODELS_BASE_URL.trimEnd('/') + "/" + entry.path))
                 try {
                     connection.connectTimeout = TIMEOUT_MS
                     connection.readTimeout = TIMEOUT_MS
@@ -123,6 +127,35 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
             if (!part.renameTo(target)) throw IOException("Не удалось сохранить ${entry.path}")
             catalog.markDownloaded(entry)
         }
+
+    /**
+     * Соединение через прокси, настроенный в системе.
+     *
+     * `HttpURLConnection` спрашивает `ProxySelector`, а тот на Android знает не про всякий
+     * прокси: настроенный для конкретной сети Wi-Fi (и тем более PAC) до него доходит не
+     * всегда, и загрузка молча идёт мимо — в сетях, где прямой выход закрыт, она просто
+     * не работает. Поэтому спрашиваем систему напрямую.
+     */
+    private fun open(url: URL): HttpURLConnection {
+        val proxy = systemProxy(url)
+        return (if (proxy == null) url.openConnection() else url.openConnection(proxy)) as HttpURLConnection
+    }
+
+    private fun systemProxy(url: URL): Proxy? {
+        val info = applicationContext.getSystemService(ConnectivityManager::class.java)?.defaultProxy ?: return null
+        // При PAC система поднимает свой прокси на localhost и отдаёт его здесь же.
+        val host = info.host?.takeIf { it.isNotEmpty() } ?: return null
+        val excluded = info.exclusionList.orEmpty().any { rule ->
+            val suffix = rule.trim().removePrefix("*").removePrefix(".")
+            suffix.isNotEmpty() && (url.host == suffix || url.host.endsWith(".$suffix"))
+        }
+        if (excluded) return Proxy.NO_PROXY
+        if (!proxyLogged) {
+            proxyLogged = true
+            Log.i(TAG, "Модели качаются через системный прокси $host:${info.port}")
+        }
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, info.port))
+    }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

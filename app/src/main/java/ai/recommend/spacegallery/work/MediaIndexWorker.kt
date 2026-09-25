@@ -4,6 +4,7 @@ import ai.recommend.spacegallery.SpaceGalleryApp
 import ai.recommend.spacegallery.data.db.MediaAnalysisEntity
 import ai.recommend.spacegallery.di.AppContainer
 import ai.recommend.spacegallery.domain.IndexingPhase
+import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.ml.onnx.ModelId
 import ai.recommend.spacegallery.ml.onnx.OnnxRuntimeHolder
 import ai.recommend.spacegallery.perf.PerfStats
@@ -83,11 +84,21 @@ class MediaIndexWorker(
         Log.i(TAG, "Темп индексации: ${pace.describe()}")
         foregroundBlocked = System.currentTimeMillis() < c.settings.foregroundBlockedUntil()
         if (foregroundBlocked) Log.i(TAG, "Foreground-сервис временно недоступен — работаем частями в фоне")
+        // Пока обязательных моделей нет, разбирать медиатеку нечем: любой проход сейчас —
+        // это работа, которую придётся повторить после загрузки (кадр декодируется заново),
+        // плюс конкуренция за процессор и батарею с самой загрузкой. Поэтому этапы ждут
+        // моделей целиком, а не каждый решает за себя.
+        val waitingForModels = c.modelDownloads.isConfigured && c.modelCatalog.missing(ModelGroup.required).isNotEmpty()
         // Разрешение на запуск сервиса действует лишь первые секунды работы задачи (expedited),
         // поэтому просим передний план сразу, а не когда дойдём до тяжёлого этапа: иначе система
         // отказывает («Background started FGS: Disallowed»), и задачу душат окнами по 15 секунд.
-        if (!foregroundBlocked && hasPendingWork(c)) tryStartForeground(0, 0)
+        if (!foregroundBlocked && !waitingForModels && hasPendingWork(c)) tryStartForeground(0, 0)
+        // Список снимков обновляем всегда: галерея должна показывать фото и без всякого AI.
         PerfStats.measure("sync.mediastore") { c.mediaRepository.syncWithMediaStore() }
+        if (waitingForModels) {
+            Log.i(TAG, "Обязательные модели ещё не скачаны — анализ отложен до конца загрузки")
+            return Result.success()
+        }
 
         val analyzed = try {
             analyzeMedia(c)
