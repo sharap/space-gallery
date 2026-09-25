@@ -45,7 +45,11 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val c = (applicationContext as SpaceGalleryApp).container
         val catalog = c.modelCatalog
         // force (отладка): качать и то, что встроено в debug-APK.
-        val files = if (inputData.getBoolean(KEY_FORCE, false)) catalog.manifest.files.filterNot(catalog::isDownloaded) else catalog.missing()
+        val groups = inputData.getStringArray(KEY_GROUPS)?.toSet().orEmpty()
+        val candidates =
+            if (inputData.getBoolean(KEY_FORCE, false)) catalog.manifest.files.filterNot(catalog::isDownloaded)
+            else catalog.missing()
+        val files = if (groups.isEmpty()) candidates else candidates.filter { it.group in groups }
         if (files.isEmpty()) return Result.success()
         if (BuildConfig.MODELS_BASE_URL.isEmpty()) return Result.failure(workDataOf(KEY_ERROR to ERROR_NO_SOURCE))
 
@@ -196,6 +200,7 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         const val KEY_FILE = "file"
         const val KEY_ERROR = "error"
         const val KEY_FORCE = "force"
+        const val KEY_GROUPS = "groups"
         const val ERROR_NO_SOURCE = "no_source"
         const val ERROR_CHECKSUM = "checksum"
         const val ERROR_NETWORK = "network"

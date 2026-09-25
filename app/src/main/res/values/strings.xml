@@ -219,6 +219,8 @@
     <string name="models_group_faces">Лица и люди</string>
     <string name="models_group_faces_hq">Точное распознавание лиц (по желанию)</string>
     <string name="models_group_other">Прочее</string>
+    <string name="models_group_required">нужна для работы</string>
+    <string name="models_group_skipped">не скачиваем</string>
     <string name="models_banner">AI-функции не установлены</string>
     <string name="models_banner_action">Скачать</string>
     <string name="settings_models_desc">Установленные нейросети и их загрузка</string>

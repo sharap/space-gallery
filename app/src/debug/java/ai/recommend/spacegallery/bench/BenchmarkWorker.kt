@@ -73,8 +73,11 @@ class BenchmarkReceiver : BroadcastReceiver() {
             return
         }
         if (intent.getStringExtra("action") == "modeldl") {
-            // Проверка загрузчика моделей: качает всё из MODELS_BASE_URL, игнорируя встроенные копии.
-            (context.applicationContext as SpaceGalleryApp).container.modelDownloads.start(wifiOnly = false, force = true)
+            // Проверка загрузчика моделей: качает из MODELS_BASE_URL, игнорируя встроенные копии.
+            // --es groups "text_ko,faces_hq" — только эти группы, иначе все.
+            val groups = intent.getStringExtra("groups")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            (context.applicationContext as SpaceGalleryApp).container.modelDownloads
+                .start(wifiOnly = false, groups = groups.orEmpty().toSet(), force = true)
             OrtBenchmark.log("=== modeldl started")
             return
         }

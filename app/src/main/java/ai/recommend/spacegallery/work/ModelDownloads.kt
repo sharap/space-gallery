@@ -30,10 +30,18 @@ class ModelDownloads(context: Context, private val catalog: ModelCatalog) {
     /** Источник моделей задан в этой сборке. */
     val isConfigured: Boolean get() = BuildConfig.MODELS_BASE_URL.isNotEmpty()
 
-    /** [force] — только для отладки: скачать и модели, встроенные в debug-APK. */
-    fun start(wifiOnly: Boolean, force: Boolean = false) {
+    /**
+     * @param groups какие группы функций качать; пусто — все из манифеста.
+     * @param force только для отладки: скачать и модели, встроенные в debug-APK.
+     */
+    fun start(wifiOnly: Boolean, groups: Set<String> = emptySet(), force: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
-            .setInputData(workDataOf(ModelDownloadWorker.KEY_FORCE to force))
+            .setInputData(
+                workDataOf(
+                    ModelDownloadWorker.KEY_FORCE to force,
+                    ModelDownloadWorker.KEY_GROUPS to groups.toTypedArray(),
+                )
+            )
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
@@ -55,7 +63,7 @@ class ModelDownloads(context: Context, private val catalog: ModelCatalog) {
         when (info.state) {
             WorkInfo.State.RUNNING -> ModelDownloadState.Running(
                 done = info.progress.getLong(ModelDownloadWorker.KEY_DONE, 0),
-                total = info.progress.getLong(ModelDownloadWorker.KEY_TOTAL, catalog.missing().sumOf { it.size }),
+                total = info.progress.getLong(ModelDownloadWorker.KEY_TOTAL, 0),
                 file = info.progress.getString(ModelDownloadWorker.KEY_FILE),
             )
             WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> ModelDownloadState.Waiting

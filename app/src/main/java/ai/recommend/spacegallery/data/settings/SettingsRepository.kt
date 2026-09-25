@@ -1,5 +1,6 @@
 package ai.recommend.spacegallery.data.settings
 
+import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.ml.onnx.ModelId
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -43,6 +44,8 @@ data class GallerySettings(
     val faceEps: Float = FaceModel.FAST.defaultEps,
     /** Скачивать AI-модели только по Wi-Fi (сотни мегабайт). */
     val modelsWifiOnly: Boolean = true,
+    /** Какие группы моделей пользователь согласился скачать (ключи [ai.recommend.spacegallery.ml.onnx.ModelGroup]). */
+    val modelGroups: Set<String> = ModelGroup.defaults(),
     /** Языки, которые распознаются на снимках. */
     val textLanguages: Set<TextLanguage> = setOf(TextLanguage.CYRILLIC),
 ) {
@@ -139,6 +142,8 @@ class SettingsRepository(private val context: Context) {
             faceModel = model,
             faceEps = p[epsKeyOf(model)]?.coerceIn(model.epsRange) ?: model.defaultEps,
             modelsWifiOnly = p[MODELS_WIFI_ONLY] ?: d.modelsWifiOnly,
+            // Обязательные группы добавляются всегда: без них приложение — просто галерея.
+            modelGroups = (p[MODEL_GROUPS] ?: d.modelGroups) + ModelGroup.required,
             textLanguages = p[TEXT_LANGUAGES]
                 ?.mapNotNullTo(LinkedHashSet()) { name -> TextLanguage.entries.firstOrNull { it.name == name } }
                 ?.takeIf { it.isNotEmpty() }
@@ -152,6 +157,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSensitiveThreshold(value: Float) = context.dataStore.edit { it[SENSITIVE_THRESHOLD] = value }
     suspend fun setSimilarityThreshold(value: Float) = context.dataStore.edit { it[SIMILARITY_THRESHOLD] = value }
     suspend fun setModelsWifiOnly(value: Boolean) = context.dataStore.edit { it[MODELS_WIFI_ONLY] = value }
+    suspend fun setModelGroups(value: Set<String>) = context.dataStore.edit { it[MODEL_GROUPS] = value + ModelGroup.required }
+
+    /** Добавить группу к выбранным — когда пользователь включает функцию, которой нужна модель. */
+    suspend fun addModelGroup(group: ModelGroup) = context.dataStore.edit {
+        it[MODEL_GROUPS] = (it[MODEL_GROUPS] ?: ModelGroup.defaults()) + ModelGroup.required + group.key
+    }
     suspend fun setIndexOnlyWhileCharging(value: Boolean) = context.dataStore.edit { it[ONLY_CHARGING] = value }
     suspend fun setQuietIndexing(value: Boolean) = context.dataStore.edit { it[QUIET_INDEXING] = value }
     /** Радиус хранится отдельно для каждой модели: их шкалы сходства не совпадают. */
@@ -213,6 +224,7 @@ class SettingsRepository(private val context: Context) {
         val ONLY_CHARGING = booleanPreferencesKey("index_only_charging")
         val QUIET_INDEXING = booleanPreferencesKey("index_quiet")
         val MODELS_WIFI_ONLY = booleanPreferencesKey("models_wifi_only")
+        val MODEL_GROUPS = stringSetPreferencesKey("model_groups")
         val FACE_MODEL = stringPreferencesKey("face_model")
         val FGS_BLOCKED_UNTIL = longPreferencesKey("foreground_blocked_until")
         val TEXT_LANGUAGES = stringSetPreferencesKey("text_languages")

@@ -45,6 +45,17 @@ class ModelCatalog(private val context: Context) {
     /** Файлы, которые нужно скачать (нет ни проверенной загрузки, ни копии в APK). */
     fun missing(): List<ModelFile> = manifest.files.filter { state(it) == ModelFileState.MISSING }
 
+    /** То же, но только для выбранных групп функций (см. [ModelGroup]). */
+    fun missing(groups: Set<String>): List<ModelFile> = missing().filter { it.group in groups }
+
+    /** Файлы группы и сколько из них ещё не установлено. */
+    fun group(key: String): List<Pair<ModelFile, ModelFileState>> =
+        manifest.files.filter { it.group == key }.map { it to state(it) }
+
+    /** Установлена ли группа целиком. */
+    fun isInstalled(key: String): Boolean =
+        group(key).let { it.isNotEmpty() && it.none { (_, state) -> state == ModelFileState.MISSING } }
+
     fun markDownloaded(entry: ModelFile) {
         File(file(entry).path + STAMP).writeText(entry.sha256)
     }

@@ -3,6 +3,7 @@ package ai.recommend.spacegallery.ui.models
 import ai.recommend.spacegallery.R
 import ai.recommend.spacegallery.data.settings.SettingsRepository
 import ai.recommend.spacegallery.ml.onnx.ModelCatalog
+import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.ml.onnx.ModelFile
 import ai.recommend.spacegallery.ml.onnx.ModelFileState
 import ai.recommend.spacegallery.ui.appViewModelFactory
@@ -57,20 +58,28 @@ class ModelsViewModel(
 
     /** Состояние файлов пересчитывается при каждой смене состояния загрузки. */
     val files: StateFlow<List<Pair<ModelFile, ModelFileState>>> = download
-        .map { catalog.manifest.files.map { it to catalog.state(it) } }
+        .map { catalog.manifest.files.map { file -> file to catalog.state(file) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val wifiOnly: StateFlow<Boolean> = settings.settings.map { it.modelsWifiOnly }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
-    fun start() = downloads.start(wifiOnly.value)
+    /** Выбранные группы функций: качаем только их. */
+    val groups: StateFlow<Set<String>> = settings.settings.map { it.modelGroups }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelGroup.defaults())
+
+    fun setGroup(group: ModelGroup, enabled: Boolean) = viewModelScope.launch {
+        settings.setModelGroups(if (enabled) groups.value + group.key else groups.value - group.key)
+    }
+
+    fun start() = downloads.start(wifiOnly.value, groups.value)
 
     fun cancel() = downloads.cancel()
 
     fun setWifiOnly(value: Boolean) = viewModelScope.launch {
         settings.setModelsWifiOnly(value)
         // Идущая загрузка перезапускается с новым условием сети (докачка продолжится).
-        if (download.value !is ModelDownloadState.Idle && download.value !is ModelDownloadState.Failed) downloads.start(value)
+        if (download.value !is ModelDownloadState.Idle && download.value !is ModelDownloadState.Failed) downloads.start(value, groups.value)
     }
 }
 
@@ -86,7 +95,9 @@ fun ModelsScreen(
     val download by viewModel.download.collectAsStateWithLifecycle()
     val files by viewModel.files.collectAsStateWithLifecycle()
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
-    val missing = files.filter { it.second == ModelFileState.MISSING }
+    val groups by viewModel.groups.collectAsStateWithLifecycle()
+    // Кнопка качает только выбранные группы — остальное пользователь не просил.
+    val missing = files.filter { it.second == ModelFileState.MISSING && it.first.group in groups }
     fun size(bytes: Long) = Formatter.formatShortFileSize(context, bytes)
 
     Scaffold(topBar = { BackTopBar(stringResource(R.string.models_title), onBack) }) { padding ->
@@ -155,11 +166,37 @@ fun ModelsScreen(
             }
             files.groupBy { it.first.group }.forEach { (group, entries) ->
                 item(key = group) {
-                    Text(
-                        stringResource(groupTitle(group)),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                    val known = ModelGroup.of(group)
+                    val installed = entries.none { it.second == ModelFileState.MISSING }
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                stringResource(groupTitle(group)),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                size(entries.sumOf { it.first.size }) + " · " + stringResource(
+                                    when {
+                                        installed -> R.string.models_state_downloaded
+                                        known?.required == true -> R.string.models_group_required
+                                        group in groups -> R.string.models_state_missing
+                                        else -> R.string.models_group_skipped
+                                    }
+                                )
+                            )
+                        },
+                        trailingContent = {
+                            // Обязательные группы выключить нельзя: без них приложение — просто галерея.
+                            if (known != null && !known.required && !installed) {
+                                Switch(
+                                    checked = group in groups,
+                                    onCheckedChange = { viewModel.setGroup(known, it) },
+                                )
+                            }
+                        },
                     )
                 }
                 items(entries, key = { it.first.path }) { (file, state) ->

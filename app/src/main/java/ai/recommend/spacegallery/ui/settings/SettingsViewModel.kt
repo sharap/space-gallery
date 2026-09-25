@@ -12,7 +12,9 @@ import ai.recommend.spacegallery.search.people.PeopleBuilder
 import ai.recommend.spacegallery.search.people.PeopleRepository
 import ai.recommend.spacegallery.search.smart.SmartAlbumBuilder
 import kotlinx.coroutines.CoroutineScope
+import ai.recommend.spacegallery.ml.onnx.ModelGroup
 import ai.recommend.spacegallery.work.IndexingScheduler
+import ai.recommend.spacegallery.work.ModelDownloads
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +31,7 @@ class SettingsViewModel(
     private val smartAlbums: SmartAlbumBuilder,
     private val people: PeopleBuilder,
     private val peopleRepository: PeopleRepository,
+    private val downloads: ModelDownloads,
     /** Скоуп приложения: пересчёт умных альбомов доживает до конца, даже если уйти с экрана. */
     private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -53,6 +56,7 @@ class SettingsViewModel(
         val next = if (enabled) current + language else current - language
         if (next.isEmpty()) return@launch
         settings.setTextLanguages(next)
+        if (enabled && language == TextLanguage.KOREAN) fetchIfMissing(ModelGroup.TEXT_KO, language.modelId)
         scheduler.ensureIndexingNow(settings.current().indexOnlyWhileCharging)
     }
 
@@ -62,7 +66,18 @@ class SettingsViewModel(
 
     fun setFaceModel(model: FaceModel) = viewModelScope.launch {
         settings.setFaceModel(model)
+        if (model == FaceModel.ACCURATE) fetchIfMissing(ModelGroup.FACES_HQ, model.modelId)
         scheduler.ensureIndexingNow(settings.current().indexOnlyWhileCharging)
+    }
+
+    /**
+     * Пользователь включил функцию, модель которой ещё не скачана: добавляем её группу к
+     * выбранным и начинаем загрузку. Иначе включение выглядело бы как «ничего не произошло».
+     */
+    private suspend fun fetchIfMissing(group: ModelGroup, id: ModelId) {
+        if (models.isAvailable(id) || !downloads.isConfigured) return
+        settings.addModelGroup(group)
+        downloads.start(settings.current().modelsWifiOnly, setOf(group.key))
     }
 
     fun setFaceEps(v: Float) {

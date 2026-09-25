@@ -58,6 +58,7 @@ fun SettingsScreen(
                 c.smartAlbumBuilder,
                 c.peopleBuilder,
                 c.people,
+                c.modelDownloads,
                 c.appScope,
             )
         },
