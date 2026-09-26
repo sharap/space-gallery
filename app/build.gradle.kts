@@ -95,9 +95,13 @@ android {
                 isDebuggable = true
                 logger.warn("ВНИМАНИЕ: релиз собирается ОТЛАЖИВАЕМЫМ (-PdebuggableRelease)")
             }
+            // R8: выбрасывает неиспользуемый код и ресурсы. Всё, к чему обращаются не из
+            // Java-кода (ONNX через JNI, воркеры по имени класса, Room, сериализация),
+            // перечислено в proguard-rules.pro — иначе ломается во время работы, а не при сборке.
             optimization {
-                enable = false
+                enable = true
             }
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
