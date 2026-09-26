@@ -244,7 +244,7 @@
     <string name="settings_face_model_fast_desc">13 МБ, ~25 мс на лицо. Хватает в большинстве случаев.</string>
     <string name="settings_face_model_accurate">Точное</string>
     <string name="settings_face_model_accurate_desc">174 МБ, ~230 мс на лицо. Заметно реже путает похожих людей. Дольше обрабатывает фото и сильнее греет телефон.</string>
-    <string name="settings_face_model_missing">Модель не установлена — скачайте её в разделе «AI-модели».</string>
+    <string name="settings_face_model_missing">Не установлена — скачается, если выбрать.</string>
     <string name="settings_face_model_switch">При смене модели векторы лиц пересчитываются в фоне, люди пересобираются. Имена и ручные правки сохраняются.</string>
     <string name="settings_face_eps">Радиус группировки лиц</string>
     <string name="settings_face_eps_desc">Больше — смелее объединяет похожие лица в одного человека. Меньше — строже: один человек может разделиться на несколько. Имена сохраняются при пересчёте.</string>
@@ -253,4 +253,9 @@
     <string name="settings_quiet_indexing">Тихая индексация</string>
     <string name="settings_quiet_indexing_desc">Всегда работать медленно и незаметно. Если выключено, телефон на зарядке доиндексирует галерею на полной скорости, пока им не пользуются.</string>
     <string name="settings_reindex">Переиндексировать медиатеку</string>
+    <string name="settings_reindex_confirm_title">Переиндексировать медиатеку?</string>
+    <string name="settings_reindex_confirm_text">Результаты анализа будут удалены и посчитаны заново: поиск по смыслу, похожие фото, умные альбомы, деликатный контент, текст на снимках, геометки и поиск лиц. На большой медиатеке это занимает часы.
+
+Имена людей и ручные отметки сохранятся.</string>
+    <string name="action_reindex">Переиндексировать</string>
 </resources>

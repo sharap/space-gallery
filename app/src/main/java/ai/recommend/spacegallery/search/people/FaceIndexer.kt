@@ -41,7 +41,24 @@ class FaceIndexer(
     private val dao: FaceDao,
     private val settings: SettingsRepository,
 ) {
-    suspend fun isAvailable(): Boolean = detector.isAvailable && embedder.isAvailable(settings.current().faceModel)
+    suspend fun isAvailable(): Boolean = detector.isAvailable && model() != null
+
+    /**
+     * Модель, которой реально можно считать векторы.
+     *
+     * Выбранная в настройках может быть не скачана — точная модель относится к
+     * необязательной группе загрузки. Раньше в этом случае поиск лиц просто молча не
+     * работал; теперь берём ту, что есть на устройстве, и переносим на неё выбор: иначе
+     * радиус группировки и версия векторов остались бы от модели, которой нет.
+     */
+    private suspend fun model(): FaceModel? {
+        val chosen = settings.current().faceModel
+        if (embedder.isAvailable(chosen)) return chosen
+        val fallback = FaceModel.entries.firstOrNull { it != chosen && embedder.isAvailable(it) } ?: return null
+        Log.i(TAG, "Модель лиц $chosen не скачана — переключаюсь на $fallback")
+        settings.setFaceModel(fallback)
+        return fallback
+    }
 
     suspend fun countPending(): Int = dao.countPending(FACES_VERSION)
 
@@ -50,7 +67,7 @@ class FaceIndexer(
      * с числом обработанных фото. Возвращает (обработано фото, найдено лиц).
      */
     suspend fun run(isStopped: () -> Boolean, onProgress: suspend (Int) -> Unit): Pair<Int, Int> {
-        val model = settings.current().faceModel
+        val model = model() ?: return 0 to 0
         var processed = 0
         var found = 0
         var afterDate = Long.MAX_VALUE
@@ -92,7 +109,7 @@ class FaceIndexer(
         /** Сколько кадров пройдено и какой id пройден последним — по нему двигают курсор. */
         onProgress: suspend (processed: Int, lastId: Long) -> Unit,
     ): Pair<Int, Int> {
-        val model = settings.current().faceModel
+        val model = model() ?: return 0 to 0
         var processed = 0
         var found = 0
         for (chunk in mediaIds.chunked(BATCH)) {

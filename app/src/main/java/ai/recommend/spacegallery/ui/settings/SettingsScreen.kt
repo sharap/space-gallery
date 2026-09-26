@@ -130,9 +130,12 @@ fun SettingsScreen(
                         )
                     },
                     trailingContent = {
-                        RadioButton(selected = s.faceModel == model, onClick = { viewModel.setFaceModel(model) }, enabled = available)
+                        RadioButton(selected = s.faceModel == model, onClick = { viewModel.setFaceModel(model) })
                     },
-                    modifier = Modifier.clickable(enabled = available) { viewModel.setFaceModel(model) },
+                    // Модель можно выбрать и когда её нет: выбор запускает загрузку (см. fetchIfMissing).
+                    // Блокировать выбор нельзя — иначе из состояния «выбрана, но не скачана»
+                    // не выбраться вовсе.
+                    modifier = Modifier.clickable { viewModel.setFaceModel(model) },
                 )
             }
             SliderSetting(
@@ -235,8 +238,26 @@ fun SettingsScreen(
                 supportingContent = { Text(stringResource(R.string.settings_models_desc)) },
                 modifier = Modifier.clickable(onClick = onOpenModels),
             )
-            OutlinedButton(onClick = viewModel::reindex, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            // Переиндексация стирает результаты анализа по всей медиатеке, поэтому спрашиваем:
+            // кнопка стоит в общем списке, и нажать её случайно слишком легко.
+            var confirmReindex by remember { mutableStateOf(false) }
+            OutlinedButton(onClick = { confirmReindex = true }, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(stringResource(R.string.settings_reindex))
+            }
+            if (confirmReindex) {
+                AlertDialog(
+                    onDismissRequest = { confirmReindex = false },
+                    title = { Text(stringResource(R.string.settings_reindex_confirm_title)) },
+                    text = { Text(stringResource(R.string.settings_reindex_confirm_text)) },
+                    confirmButton = {
+                        TextButton(onClick = { confirmReindex = false; viewModel.reindex() }) {
+                            Text(stringResource(R.string.action_reindex))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmReindex = false }) { Text(stringResource(R.string.action_cancel)) }
+                    },
+                )
             }
 
             HorizontalDivider()
