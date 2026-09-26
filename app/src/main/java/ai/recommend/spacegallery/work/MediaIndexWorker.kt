@@ -142,8 +142,16 @@ class MediaIndexWorker(
             }
             pending = left
         }
+        if (pace.exhausted() && !isStopped) {
+            // Своё окно отработали — это не ошибка. Ставим продолжение сами: через
+            // Result.retry() WorkManager считал бы попытки и увёл следующий запуск на часы,
+            // из-за чего индексация замирала до перезапуска приложения.
+            Log.i(TAG, "Окно тихого прохода вышло — продолжим через ${NEXT_CHUNK_DELAY_MS / 60_000} мин")
+            c.indexingScheduler.scheduleNextChunk(NEXT_CHUNK_DELAY_MS)
+            return Result.success()
+        }
         if (halted()) {
-            Log.i(TAG, if (pace.exhausted()) "Окно тихого прохода вышло — продолжим в следующий раз" else "Проход остановлен системой")
+            Log.i(TAG, "Проход остановлен системой")
             return checkStop(c)
         }
         Log.i(TAG, "Проход завершён: работы больше нет")
@@ -583,6 +591,9 @@ class MediaIndexWorker(
 
         /** Суточный лимит сервиса сбрасывается раз в сутки — столько и ждём. */
         private const val QUOTA_BACKOFF_MS = 6 * 60 * 60 * 1000L
+
+        /** Пауза между кусками тихого прохода: работаем окном, потом даём телефону отдохнуть. */
+        private const val NEXT_CHUNK_DELAY_MS = 2 * 60 * 1000L
 
         /** Сколько ночной проход ждёт, пока дневной освободит место. */
         private const val TAKEOVER_WAIT_MS = 30_000L

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -15,6 +16,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -38,6 +40,10 @@ class IndexingScheduler(private val context: Context) {
                     .setRequiresCharging(onlyWhileCharging)
                     .build()
             )
+            // Линейная задержка вместо экспоненциальной: после нескольких прерванных
+            // проходов экспонента уводит следующий запуск на часы, и индексация замирает
+            // до перезапуска приложения.
+            .setBackoffCriteria(BackoffPolicy.LINEAR, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
             .build()
         workManager.enqueueUniqueWork(
             WORK_NAME,
@@ -45,6 +51,30 @@ class IndexingScheduler(private val context: Context) {
             request,
         )
         scheduleNightPass()
+    }
+
+    /**
+     * Продолжить проход после того, как он отработал своё окно.
+     *
+     * Окончание по собственному окну — не ошибка, поэтому воркер возвращает успех, а
+     * следующий кусок ставится обычной задачей с небольшой паузой. Через `Result.retry()`
+     * так делать нельзя: WorkManager считает попытки и разводит задержку до часов.
+     */
+    fun scheduleNextChunk(delayMs: Long) {
+        val request = OneTimeWorkRequestBuilder<MediaIndexWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresBatteryNotLow(true)
+                    .setRequiresCharging(onlyWhileCharging)
+                    .build()
+            )
+            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+            .build()
+        // APPEND_OR_REPLACE, а не REPLACE: продолжение ставит сам работающий воркер, и
+        // REPLACE отменил бы его самого. Задача встаёт следом за текущей и стартует после
+        // паузы, а счётчик попыток у неё свой — задержка не копится.
+        workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     /**
@@ -65,6 +95,8 @@ class IndexingScheduler(private val context: Context) {
                     .build()
             )
             .setInputData(workDataOf(MediaIndexWorker.KEY_FULL_PACE to true))
+            // Задержку повторов здесь задавать нельзя: WorkManager запрещает её задачам с
+            // условием «системный простой» и бросает IllegalArgumentException при сборке.
             .build()
         workManager.enqueueUniqueWork(NIGHT_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
@@ -140,6 +172,9 @@ class IndexingScheduler(private val context: Context) {
 
         /** Отдельное имя: ночной проход ждёт своих условий, не мешая дневным запускам. */
         const val NIGHT_WORK_NAME = "media-index-night"
+
+        /** Минимум, который разрешает WorkManager (10 секунд). */
+        const val MIN_BACKOFF_MILLIS = androidx.work.WorkRequest.MIN_BACKOFF_MILLIS
         /** Камера и загрузчики присылают пачки уведомлений; индексация — ещё и свои. */
         const val DEBOUNCE_MS = 10_000L
     }
