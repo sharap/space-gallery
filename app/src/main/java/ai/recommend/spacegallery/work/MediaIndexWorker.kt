@@ -31,14 +31,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Фоновая индексация по этапам:
+ * Фоновая индексация. Этапы идут по кругу, и у каждого своё окно времени — иначе этап с
+ * большой очередью занимает проход целиком, и до остальных дело не доходит:
  * 1. синхронизация с MediaStore и AI-анализ новых/изменённых файлов (CLIP, NSFW, dHash);
  * 2. умные альбомы (DBSCAN по CLIP), если накопилось достаточно изменений;
- * 3. текст на снимках и QR-коды;
- *    геометки (EXIF, метаданные видео) — для поиска по местам;
- *    оценка качества (резкость, яркость) — для очистки;
- * 4. поиск лиц (YuNet + SFace) на фото, где их ещё не искали;
- * 5. люди (средняя связь по лицам), если нашлись новые лица.
+ * 3. геометки (EXIF, метаданные видео) и оценка качества — оба этапа дешёвые;
+ * 4. поиск лиц (YuNet + ArcFace/MobileFaceNet) и сборка людей;
+ * 5. текст на снимках и QR-коды — самый дорогой этап, около секунды на снимок, поэтому
+ *    он идёт последним: люди появляются в приложении раньше.
  *
  * Большие проходы выполняются как foreground service (уведомление с прогрессом): так система
  * не убивает процесс, не действует 10-минутный лимит WorkManager и доступны все ядра.
@@ -120,7 +120,7 @@ class MediaIndexWorker(
         // Разрешение на запуск сервиса действует лишь первые секунды работы задачи (expedited),
         // поэтому просим передний план сразу, а не когда дойдём до тяжёлого этапа: иначе система
         // отказывает («Background started FGS: Disallowed»), и задачу душат окнами по 15 секунд.
-        if (!foregroundBlocked && !waitingForModels && hasPendingWork(c)) tryStartForeground(0, 0)
+        if (!foregroundBlocked && !waitingForModels && pendingWork(c) > 0) tryStartForeground(0, 0)
         // Список снимков обновляем всегда: галерея должна показывать фото и без всякого AI.
         PerfStats.measure("sync.mediastore") { c.mediaRepository.syncWithMediaStore() }
         if (waitingForModels) {
@@ -128,66 +128,19 @@ class MediaIndexWorker(
             return Result.success()
         }
 
-        val analyzed = try {
-            analyzeMedia(c)
-        } catch (e: CancellationException) {
-            throw e // остановка воркера — не ошибка
-        } catch (e: Exception) {
-            Log.e(TAG, "Indexing failed", e)
-            return Result.retry()
-        }
-        if (halted()) return Result.retry()
-
-        // Пока воркер в foreground и доступны все ядра — производные данные.
-        if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = analyzed)) {
-            enterPhase(IndexingPhase.GROUPING, total = 0, foreground = true) // ~3–10 с работы CPU
-            rebuildSmartAlbums(c)
-        }
-        if (halted()) return Result.retry()
-
-        try {
-            readLocations(c)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Location reading failed", e)
-        }
-        if (halted()) return Result.retry()
-
-        try {
-            readText(c)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Text recognition failed", e)
-        }
-        if (halted()) return checkStop(c)
-
-        try {
-            assessQuality(c)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Quality assessment failed", e) // очистка подождёт, не повод перезапускать
-        }
-        if (halted()) return checkStop(c)
-
-        if (c.faceIndexer.isAvailable()) {
-            val facesFound = try {
-                // Сменилась модель векторов — пересчитываем по сохранённым точкам, без поиска лиц.
-                reembedFaces(c) + indexFaces(c)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "Face indexing failed", e)
-                return Result.retry()
+        // Этапы идут по кругу, и у каждого своё окно (см. IndexingPace.stageBudgetMs).
+        // Иначе этап с огромной очередью занимает проход целиком: так лица неделю не
+        // начинались из-за анализа, а потом из-за текста. Круг повторяется, пока работа
+        // убывает; если за круг не убавилось ничего — дальше крутиться незачем.
+        var pending = pendingWork(c)
+        while (!halted() && pending > 0) {
+            runStages(c)
+            val left = pendingWork(c)
+            if (left >= pending) {
+                Log.i(TAG, "За круг работы не убавилось ($pending), заканчиваем проход")
+                break
             }
-            if (halted()) return checkStop(c)
-            if (facesFound > 0 || c.peopleBuilder.needsRebuild()) {
-                // Лиц — тысячи, векторы короткие: доли секунды, уведомление не нужно.
-                enterPhase(IndexingPhase.GROUPING, total = 0, foreground = false)
-                rebuildPeople(c)
-            }
+            pending = left
         }
         if (halted()) {
             Log.i(TAG, if (pace.exhausted()) "Окно тихого прохода вышло — продолжим в следующий раз" else "Проход остановлен системой")
@@ -220,17 +173,72 @@ class MediaIndexWorker(
         return Result.retry()
     }
 
-    /** Есть ли вообще работа: если нет, передний план и уведомление не нужны. */
-    private suspend fun hasPendingWork(c: AppContainer): Boolean {
-        val analysis = c.database.analysisDao().countPending(
+    /**
+     * Один круг этапов. Порядок — от самого заметного к самому дорогому: люди появляются
+     * в приложении раньше, чем распознается текст на всей медиатеке (он самый медленный,
+     * около секунды на снимок).
+     */
+    private suspend fun runStages(c: AppContainer) {
+        val analyzed = try {
+            analyzeMedia(c)
+        } catch (e: CancellationException) {
+            throw e // остановка воркера — не ошибка
+        } catch (e: Exception) {
+            Log.e(TAG, "Indexing failed", e)
+            0
+        }
+        if (halted()) return
+
+        // Пока воркер в foreground и доступны все ядра — производные данные.
+        if (c.imageEmbedder.isAvailable && c.smartAlbumBuilder.shouldRebuild(newlyAnalyzed = analyzed)) {
+            enterPhase(IndexingPhase.GROUPING, total = 0, foreground = true) // ~3–10 с работы CPU
+            rebuildSmartAlbums(c)
+        }
+        if (halted()) return
+
+        runStage("Location reading") { readLocations(c) }
+        if (halted()) return
+        runStage("Quality assessment") { assessQuality(c) }
+        if (halted()) return
+
+        if (c.faceIndexer.isAvailable()) {
+            val facesFound = runStage("Face indexing") {
+                // Сменилась модель векторов — пересчитываем по сохранённым точкам, без поиска лиц.
+                reembedFaces(c) + indexFaces(c)
+            } ?: 0
+            if (halted()) return
+            if (facesFound > 0 || c.peopleBuilder.needsRebuild()) {
+                // Лиц — тысячи, векторы короткие: доли секунды, уведомление не нужно.
+                enterPhase(IndexingPhase.GROUPING, total = 0, foreground = false)
+                rebuildPeople(c)
+            }
+        } else {
+            Log.i(TAG, "Поиск лиц пропущен: нет моделей")
+        }
+        if (halted()) return
+
+        runStage("Text recognition") { readText(c) }
+    }
+
+    /** Этап не должен ронять проход: упал — пишем в журнал и идём дальше. */
+    private suspend fun <T> runStage(name: String, block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "$name failed", e)
+        null
+    }
+
+    /** Сколько всего файлов ждёт обработки на всех этапах. */
+    private suspend fun pendingWork(c: AppContainer): Int =
+        c.database.analysisDao().countPending(
             MediaAnalyzer.PIPELINE_VERSION,
             c.imageEmbedder.isAvailable,
             c.sensitiveClassifier.isAvailable,
-        )
-        return analysis > 0 || c.textIndexer.countPending() > 0 || c.qualityIndexer.countPending() > 0 ||
-            c.locationIndexer.countPending() > 0 || c.faceIndexer.countPending() > 0 ||
-            c.faceReembedder.countPending() > 0
-    }
+        ) + c.textIndexer.countPending() + c.qualityIndexer.countPending() +
+            c.locationIndexer.countPending() + c.faceIndexer.countPending() +
+            c.faceReembedder.countPending()
 
     /** Этап 1: CLIP/NSFW/dHash. Возвращает число проанализированных файлов. */
     private suspend fun analyzeMedia(c: AppContainer): Int {

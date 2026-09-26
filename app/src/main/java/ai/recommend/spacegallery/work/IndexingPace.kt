@@ -99,7 +99,7 @@ class IndexingPace(
      * медиатеки) съедает проход целиком, и до текста, лиц и геометок очередь не доходит
      * никогда. В полном темпе ограничения нет — там проход идёт до конца.
      */
-    val stageBudgetMs: Long get() = if (mode == Mode.QUIET) QUIET_STAGE_MS else Long.MAX_VALUE
+    val stageBudgetMs: Long get() = if (mode == Mode.QUIET) QUIET_STAGE_MS else FULL_STAGE_MS
 
     /**
      * Тихий проход не длится вечно: отработав своё окно, он уходит, а остаток медиатеки
@@ -162,6 +162,10 @@ class IndexingPace(
         const val MAX_PAUSE_MS = 3_000L
         const val QUIET_BUDGET_MS = 10 * 60 * 1000L
         const val QUIET_STAGE_MS = 3 * 60 * 1000L
+
+        /** В полном темпе окно шире, но не бесконечное: иначе текст на 14 тысячах снимков
+         *  идёт три часа, и лица всё это время не начинаются. */
+        const val FULL_STAGE_MS = 10 * 60 * 1000L
         const val MODE_TTL_MS = 2_000L
 
         /** Сколько экран должен быть погашен на зарядке, чтобы считать это ночью. */
