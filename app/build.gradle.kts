@@ -87,6 +87,14 @@ android {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug").also {
                 logger.lifecycle("Релиз подписывается отладочным ключом (нет keystore.properties)")
             }
+            // Отладочный релиз: ./gradlew assembleRelease -PdebuggableRelease=true
+            // Нужен, чтобы заглянуть в базу на устройстве (run-as работает только с
+            // отлаживаемым приложением), не переустанавливая его и не теряя данные:
+            // подпись и applicationId те же, что у обычного релиза. В публикацию не идёт.
+            if ((project.findProperty("debuggableRelease") as String?) == "true") {
+                isDebuggable = true
+                logger.warn("ВНИМАНИЕ: релиз собирается ОТЛАЖИВАЕМЫМ (-PdebuggableRelease)")
+            }
             optimization {
                 enable = false
             }
