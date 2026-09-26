@@ -20,7 +20,10 @@ import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
+import androidx.work.WorkManager
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -58,13 +61,37 @@ class MediaIndexWorker(
     /** Остановиться пора: либо система забирает воркер, либо у тихого прохода вышло окно. */
     private fun halted(): Boolean = isStopped || pace.exhausted()
 
+    /** До какого момента текущий этап имеет право работать (см. [IndexingPace.stageBudgetMs]). */
+    private var stageDeadline = Long.MAX_VALUE
+
+    /** Пора заканчивать этап — но не обязательно весь проход: дальше идут другие этапы. */
+    private fun stageHalted(): Boolean = halted() || SystemClock.elapsedRealtime() > stageDeadline
+
+    private fun startStage() {
+        val budget = pace.stageBudgetMs
+        stageDeadline = if (budget == Long.MAX_VALUE) Long.MAX_VALUE else SystemClock.elapsedRealtime() + budget
+    }
+
     override suspend fun doWork(): Result {
         val c = (applicationContext as SpaceGalleryApp).container
         // Ночной проход по расписанию и обычный — один и тот же воркер; вдвоём им на
         // процессоре делать нечего.
         if (!running.compareAndSet(false, true)) {
-            Log.i(TAG, "Индексация уже идёт — этот запуск подождёт")
-            return Result.retry()
+            if (!inputData.getBoolean(KEY_FULL_PACE, false)) {
+                Log.i(TAG, "Индексация уже идёт — этот запуск подождёт")
+                return Result.retry()
+            }
+            // Ночной проход не должен уступать дневному: тот работает окнами и уходит в
+            // растущий backoff, а условия «зарядка и простой» выпадают редко. Поэтому
+            // просим дневной закончить и занимаем его место.
+            Log.i(TAG, "Ночной проход просит дневной уступить")
+            WorkManager.getInstance(applicationContext).cancelUniqueWork(IndexingScheduler.WORK_NAME)
+            val until = SystemClock.elapsedRealtime() + TAKEOVER_WAIT_MS
+            while (running.get() && SystemClock.elapsedRealtime() < until) delay(500)
+            if (!running.compareAndSet(false, true)) {
+                Log.w(TAG, "Дневной проход не уступил за ${TAKEOVER_WAIT_MS / 1000} с")
+                return Result.retry()
+            }
         }
         return try {
             index(c)
@@ -78,11 +105,11 @@ class MediaIndexWorker(
         pace = IndexingPace(
             applicationContext,
             alwaysQuiet = c.settings.current().quietIndexing,
-            forceFull = inputData.getBoolean(KEY_FULL_PACE, false),
-            isStopped = { halted() },
+            isStopped = { stageHalted() },
         )
         OnnxRuntimeHolder.intraOpThreads = pace.mode.threads
         Log.i(TAG, "Темп индексации: ${pace.describe()}")
+        logWorkStates()
         foregroundBlocked = System.currentTimeMillis() < c.settings.foregroundBlockedUntil()
         if (foregroundBlocked) Log.i(TAG, "Foreground-сервис временно недоступен — работаем частями в фоне")
         // Пока обязательных моделей нет, разбирать медиатеку нечем: любой проход сейчас —
@@ -162,7 +189,26 @@ class MediaIndexWorker(
                 rebuildPeople(c)
             }
         }
-        return if (halted()) checkStop(c) else Result.success()
+        if (halted()) {
+            Log.i(TAG, if (pace.exhausted()) "Окно тихого прохода вышло — продолжим в следующий раз" else "Проход остановлен системой")
+            return checkStop(c)
+        }
+        Log.i(TAG, "Проход завершён: работы больше нет")
+        return Result.success()
+    }
+
+    /**
+     * Состояние обеих задач индексации в журнал: без этого не видно, почему ночной проход
+     * не случился — ждёт ли он условий, откладывается ли системой или давно отработал.
+     */
+    private suspend fun logWorkStates() {
+        val wm = WorkManager.getInstance(applicationContext)
+        for (name in listOf(IndexingScheduler.WORK_NAME, IndexingScheduler.NIGHT_WORK_NAME)) {
+            val states = runCatching { wm.getWorkInfosForUniqueWorkFlow(name).first() }
+                .getOrDefault(emptyList())
+                .joinToString { "${it.state}${if (it.runAttemptCount > 0) " (попыток ${it.runAttemptCount})" else ""}" }
+            Log.i(TAG, "Задача $name: ${states.ifEmpty { "нет" }}")
+        }
     }
 
     /** Остановка по лимиту foreground-сервиса — запомнить и продолжить в фоне. */
@@ -196,6 +242,7 @@ class MediaIndexWorker(
         )
         if (total == 0) return 0
         phase = IndexingPhase.ANALYSIS
+        startStage()
         // Пара новых фото обрабатывается за секунды — не показываем ради них уведомление.
         if (total >= FOREGROUND_THRESHOLD) tryStartForeground(0, total)
 
@@ -245,7 +292,7 @@ class MediaIndexWorker(
                     }
                 }
                 for (item in prepared) {
-                    if (halted()) break
+                    if (stageHalted()) break
                     results += c.mediaAnalyzer.analyze(item)
                     if (results.size >= BATCH_SIZE) flush()
                     pace.tick()
@@ -266,7 +313,7 @@ class MediaIndexWorker(
         val total = c.locationIndexer.countPending()
         if (total == 0) return
         enterPhase(IndexingPhase.LOCATION, total, foreground = total >= FOREGROUND_THRESHOLD)
-        c.locationIndexer.run(isStopped = { halted() }) { processed ->
+        c.locationIndexer.run(isStopped = { stageHalted() }) { processed ->
             reportProgress(processed, total)
             pace.tick()
         }
@@ -281,7 +328,7 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         try {
-            val (_, found) = c.textIndexer.run(isStopped = { halted() }) { processed ->
+            val (_, found) = c.textIndexer.run(isStopped = { stageHalted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "text.total")
@@ -303,7 +350,7 @@ class MediaIndexWorker(
         enterPhase(IndexingPhase.QUALITY, total, foreground = total >= FOREGROUND_THRESHOLD)
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
-        c.qualityIndexer.run(isStopped = { halted() }) { processed ->
+        c.qualityIndexer.run(isStopped = { stageHalted() }) { processed ->
             reportProgress(processed, total)
             if (processed - reportedAt >= PERF_REPORT_EVERY * 4) {
                 logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "quality.total")
@@ -323,7 +370,7 @@ class MediaIndexWorker(
         var reportedAt = 0
         var windowStart = SystemClock.elapsedRealtime()
         return try {
-            c.faceReembedder.run(isStopped = { halted() }) { processed ->
+            c.faceReembedder.run(isStopped = { stageHalted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.embed")
@@ -350,7 +397,7 @@ class MediaIndexWorker(
             if (crowdIds.isNotEmpty()) {
                 c.models.release(ModelId.CLIP_TEXT, ModelId.CLIP_TEXT_MULTILINGUAL, ModelId.CLIP_IMAGE)
             }
-            val (_, found) = c.faceIndexer.run(isStopped = { halted() }) { processed ->
+            val (_, found) = c.faceIndexer.run(isStopped = { stageHalted() }) { processed ->
                 reportProgress(processed, total)
                 if (processed - reportedAt >= PERF_REPORT_EVERY) {
                     logPerf(processed - reportedAt, SystemClock.elapsedRealtime() - windowStart, processed, total, "faces.total")
@@ -364,7 +411,7 @@ class MediaIndexWorker(
             // Модели лиц (ArcFace ~174 МБ) освобождаются до проверки через CLIP: вместе они
             // не помещаются — система убивала процесс.
             c.models.release(ModelId.FACE_DETECT, ModelId.FACE_EMBED, ModelId.FACE_EMBED_HQ)
-            val removed = c.faceIndexer.verifyExisting(isStopped = { halted() })
+            val removed = c.faceIndexer.verifyExisting(isStopped = { stageHalted() })
             if (removed > 0) Log.i(TAG, "Удалено ложных срабатываний лиц: $removed")
             return found + removed + recrowded
         } finally {
@@ -384,7 +431,7 @@ class MediaIndexWorker(
         Log.i(TAG, "Пересмотр людных кадров: ${candidates.size} шт.")
         // Своя подпись этапа: иначе в уведомлении остаётся счёт от обычного поиска лиц.
         enterPhase(IndexingPhase.FACES, candidates.size, foreground = candidates.size >= FOREGROUND_THRESHOLD)
-        val (processed, found) = c.faceIndexer.rescan(candidates, isStopped = { halted() }) { done, lastId ->
+        val (processed, found) = c.faceIndexer.rescan(candidates, isStopped = { stageHalted() }) { done, lastId ->
             reportProgress(done, candidates.size)
             // Курсор — по пройденным id: после перезапуска пересмотр продолжится отсюда.
             c.settings.setCrowdPassCursor(lastId)
@@ -438,6 +485,7 @@ class MediaIndexWorker(
     /** Новый этап: подпись в уведомлении/ленте; тяжёлые этапы — в foreground. */
     private suspend fun enterPhase(newPhase: IndexingPhase, total: Int, foreground: Boolean) {
         phase = newPhase
+        startStage()
         // Модели этапа ещё не загружены — самое время применить число потоков текущего темпа.
         OnnxRuntimeHolder.intraOpThreads = pace.mode.threads
         lastNotificationAt = 0L
@@ -503,7 +551,11 @@ class MediaIndexWorker(
         /** Один проход на процесс: ночной по расписанию и обычный не должны идти вдвоём. */
         private val running = AtomicBoolean(false)
 
-        /** Проход запущен по ночному расписанию — темп полный, окно не ограничено. */
+        /**
+         * Проход поставлен ночным расписанием. Темп он не задаёт — его решает
+         * [IndexingPace] по состоянию телефона; признак нужен лишь для того, чтобы такой
+         * проход мог занять место дневного, а не ушёл в очередь.
+         */
         const val KEY_FULL_PACE = "full_pace"
         private const val BATCH_SIZE = 16
         private const val PAGE_SIZE = 64
@@ -523,6 +575,9 @@ class MediaIndexWorker(
 
         /** Суточный лимит сервиса сбрасывается раз в сутки — столько и ждём. */
         private const val QUOTA_BACKOFF_MS = 6 * 60 * 60 * 1000L
+
+        /** Сколько ночной проход ждёт, пока дневной освободит место. */
+        private const val TAKEOVER_WAIT_MS = 30_000L
 
         /** Отказ из-за состояния приложения (экран заблокирован) проходит сам — ждём недолго. */
         private const val DENIED_BACKOFF_MS = 5 * 60 * 1000L

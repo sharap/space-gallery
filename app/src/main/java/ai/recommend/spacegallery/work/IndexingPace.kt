@@ -26,8 +26,6 @@ class IndexingPace(
     private val context: Context,
     /** Пользователь потребовал всегда тихую индексацию. */
     private val alwaysQuiet: Boolean,
-    /** Проход запущен по ночному расписанию (зарядка + простой), темп можно не выяснять. */
-    private val forceFull: Boolean,
     private val isStopped: () -> Boolean,
 ) {
 
@@ -40,11 +38,22 @@ class IndexingPace(
     }
 
     private val power = context.getSystemService(PowerManager::class.java)
-    private val battery = context.getSystemService(BatteryManager::class.java)
+
+    /**
+     * Телефон на питании.
+     *
+     * Не `BatteryManager.isCharging`: на MIUI «умная зарядка» останавливает ток около 90%,
+     * и в терминах Android телефон перестаёт заряжаться, хотя всю ночь лежит на кабеле.
+     * Нам важно именно это — что его отложили и питание есть.
+     */
+    private fun isPlugged(): Boolean {
+        val status = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        return (status?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+    }
 
     private val runStartedAt = SystemClock.elapsedRealtime()
     private var modeCheckedAt = 0L
-    private var cachedMode = if (forceFull) Mode.FULL else Mode.QUIET
+    private var cachedMode = Mode.QUIET
     private var workedMs = 0L
     private var sliceStartedAt = SystemClock.elapsedRealtime()
     private var headroomAt = 0L
@@ -61,19 +70,36 @@ class IndexingPace(
 
     private fun detect(): Mode {
         if (alwaysQuiet) return Mode.QUIET
-        if (forceFull) return Mode.FULL
         // Приложение на экране: пользователь видит прогресс и ждёт результата.
         if (SpaceGalleryApp.isOnScreen) return Mode.FULL
-        val charging = battery?.isCharging == true
-        val idle = power?.isDeviceIdleMode == true
-        return if (charging && idle) Mode.FULL else Mode.QUIET
+        if (!isPlugged()) return Mode.QUIET
+        // Системный простой — самый надёжный признак «телефон отложили», но ждать его можно
+        // часами, а иногда он не наступает вовсе. Поэтому годится и просто давно погасший
+        // экран на зарядке: это та самая ночь, ради которой всё и затевалось.
+        if (power?.isDeviceIdleMode == true) return Mode.FULL
+        val screenOff = SpaceGalleryApp.screenOffSince
+        val offFor = if (screenOff == 0L) 0L else SystemClock.elapsedRealtime() - screenOff
+        return if (offFor >= SCREEN_OFF_FOR_FULL_MS) Mode.FULL else Mode.QUIET
     }
 
     /** Для журнала: почему выбран такой темп. */
-    fun describe(): String = "%s (%d потока, экран=%b зарядка=%b простой=%b запас=%.2f)".format(
-        mode, mode.threads, SpaceGalleryApp.isOnScreen,
-        battery?.isCharging == true, power?.isDeviceIdleMode == true, headroom(),
-    )
+    fun describe(): String {
+        val screenOff = SpaceGalleryApp.screenOffSince
+        val offMin = if (screenOff == 0L) 0 else (SystemClock.elapsedRealtime() - screenOff) / 60_000
+        return "%s (%d потока, экран=%b питание=%b простой=%b погас=%d мин запас=%.2f)".format(
+            mode, mode.threads, SpaceGalleryApp.isOnScreen,
+            isPlugged(), power?.isDeviceIdleMode == true, offMin, headroom(),
+        )
+    }
+
+    /**
+     * Сколько времени один этап может занимать за проход.
+     *
+     * В тихом режиме окно небольшое: иначе этап с огромной очередью (например, анализ всей
+     * медиатеки) съедает проход целиком, и до текста, лиц и геометок очередь не доходит
+     * никогда. В полном темпе ограничения нет — там проход идёт до конца.
+     */
+    val stageBudgetMs: Long get() = if (mode == Mode.QUIET) QUIET_STAGE_MS else Long.MAX_VALUE
 
     /**
      * Тихий проход не длится вечно: отработав своё окно, он уходит, а остаток медиатеки
@@ -135,7 +161,11 @@ class IndexingPace(
         const val QUIET_DUTY_DIVISOR = 4
         const val MAX_PAUSE_MS = 3_000L
         const val QUIET_BUDGET_MS = 10 * 60 * 1000L
+        const val QUIET_STAGE_MS = 3 * 60 * 1000L
         const val MODE_TTL_MS = 2_000L
+
+        /** Сколько экран должен быть погашен на зарядке, чтобы считать это ночью. */
+        const val SCREEN_OFF_FOR_FULL_MS = 15 * 60 * 1000L
         const val HEADROOM_TTL_MS = 1_100L
 
         /** Выше этого запаса система уже снижает частоты — считать дальше невыгодно. */

@@ -135,7 +135,7 @@ class IndexingScheduler(private val context: Context) {
         }
     }
 
-    private companion object {
+    companion object {
         const val WORK_NAME = "media-index"
 
         /** Отдельное имя: ночной проход ждёт своих условий, не мешая дневным запускам. */
