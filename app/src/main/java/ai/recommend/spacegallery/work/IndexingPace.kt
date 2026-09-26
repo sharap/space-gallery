@@ -76,21 +76,17 @@ class IndexingPace(
         // Системный простой — самый надёжный признак «телефон отложили», но ждать его можно
         // часами, а иногда он не наступает вовсе. Поэтому годится и просто давно погасший
         // экран на зарядке: это та самая ночь, ради которой всё и затевалось.
-        if (power?.isDeviceIdleMode == true) return Mode.FULL
-        val screenOff = SpaceGalleryApp.screenOffSince
-        val offFor = if (screenOff == 0L) 0L else SystemClock.elapsedRealtime() - screenOff
-        return if (offFor >= SCREEN_OFF_FOR_FULL_MS) Mode.FULL else Mode.QUIET
+        // Экран погашен — телефон отложили. Спрашиваем состояние прямо сейчас, а не храним
+        // момент выключения: процесс перезапускается, и запомненное время теряется.
+        // `isInteractive` есть на всех устройствах, в отличие от теплового запаса.
+        return if (power?.isDeviceIdleMode == true || power?.isInteractive == false) Mode.FULL else Mode.QUIET
     }
 
     /** Для журнала: почему выбран такой темп. */
-    fun describe(): String {
-        val screenOff = SpaceGalleryApp.screenOffSince
-        val offMin = if (screenOff == 0L) 0 else (SystemClock.elapsedRealtime() - screenOff) / 60_000
-        return "%s (%d потока, экран=%b питание=%b простой=%b погас=%d мин запас=%.2f)".format(
-            mode, mode.threads, SpaceGalleryApp.isOnScreen,
-            isPlugged(), power?.isDeviceIdleMode == true, offMin, headroom(),
-        )
-    }
+    fun describe(): String = "%s (%d потока, приложение=%b питание=%b экран=%b простой=%b запас=%.2f)".format(
+        mode, mode.threads, SpaceGalleryApp.isOnScreen, isPlugged(),
+        power?.isInteractive == true, power?.isDeviceIdleMode == true, headroom(),
+    )
 
     /**
      * Сколько времени один этап может занимать за проход.
@@ -168,8 +164,6 @@ class IndexingPace(
         const val FULL_STAGE_MS = 10 * 60 * 1000L
         const val MODE_TTL_MS = 2_000L
 
-        /** Сколько экран должен быть погашен на зарядке, чтобы считать это ночью. */
-        const val SCREEN_OFF_FOR_FULL_MS = 15 * 60 * 1000L
         const val HEADROOM_TTL_MS = 1_100L
 
         /** Выше этого запаса система уже снижает частоты — считать дальше невыгодно. */
