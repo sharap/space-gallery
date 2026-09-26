@@ -39,7 +39,7 @@ fun GalleryScreen(
     onOpenModels: () -> Unit,
     viewModel: GalleryViewModel = viewModel(
         factory = appViewModelFactory { c, _ ->
-            GalleryViewModel(c.mediaRepository, c.indexingScheduler, downloads = c.modelDownloads, catalog = c.modelCatalog)
+            GalleryViewModel(c.mediaRepository, c.indexingScheduler, downloads = c.modelDownloads, catalog = c.modelCatalog, settings = c.settings)
         },
     ),
 ) {

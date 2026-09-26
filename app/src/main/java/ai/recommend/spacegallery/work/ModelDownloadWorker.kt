@@ -49,7 +49,10 @@ class ModelDownloadWorker(context: Context, params: WorkerParameters) : Coroutin
         val c = (applicationContext as SpaceGalleryApp).container
         val catalog = c.modelCatalog
         // force (отладка): качать и то, что встроено в debug-APK.
-        val groups = inputData.getStringArray(KEY_GROUPS)?.toSet().orEmpty()
+        // Список групп не задан — берём тот, что выбрал пользователь: качать всё подряд
+        // нельзя, от корейского текста и точных лиц можно было отказаться.
+        val groups = inputData.getStringArray(KEY_GROUPS)?.toSet()?.takeIf { it.isNotEmpty() }
+            ?: c.settings.current().modelGroups
         val candidates =
             if (inputData.getBoolean(KEY_FORCE, false)) catalog.manifest.files.filterNot(catalog::isDownloaded)
             else catalog.missing()
